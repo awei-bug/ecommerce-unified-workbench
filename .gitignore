@@ -1,0 +1,20 @@
+# 这个目录是跨项目的规划与验证脚本集，会跑 Python 脚本，因此需要防住运行产物。
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# 验证脚本运行时可能生成的日志（evidence/ 下的正式记录要提交，临时日志不提交）
+*.log.tmp
+evidence/*.tmp
+
+# 编辑器 / 操作系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 本机临时文件
+~$*
+*.swp

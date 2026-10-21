@@ -1,0 +1,31 @@
+﻿py : F:\Python_code\电商垂类整合计划\verify_ecommerce_chain.py:203: LegacyAPIWarning: The Query.get() method is considered lega
+cy as of the 1.x series of SQLAlchemy and becomes a legacy construct in 2.0. The method is now available as Session.get
+() (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)
+所在位置 行:7 字符: 1
++ py -3 verify_ecommerce_chain.py --slug demo 2>&1 | Out-File -FilePath ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (F:\Python_code\...lche.me/e/b8d9):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  product = models.Product.query.get(product_id)
+[chain] tenant=demo external_id=chain-1792566966 hub=http://127.0.0.1:8120
+PASS  hub.online  data-hub
+PASS  content.ingest.written  created=1 updated=0
+PASS  content.ingest.readback  version=1
+PASS  cs.sync.created  summary={'created': 1, 'updated': 12, 'pending': 0, 'errors': 0, 'ack_errors': 0}
+PASS  cs.product.persisted  id=23
+PASS  cs.knowledge.cached  hash=0ae6a6f1
+PASS  cs.knowledge.search  n=3
+PASS  cs.knowledge.top_match  便携榨汁杯 380ml #055808
+PASS  cs.knowledge.faq_present  [{'q': '能榨冰块吗', 'a': '不建议，硬物会损伤刀头'}]
+PASS  cs.agent.reply  未精确命中，为你推荐店内其它在售 2 件商品： / 1. 便携榨汁杯 380ml #055808  ¥129.00  库存30（有货） / 2. 便携榨汁杯 380ml
+PASS  cs.agent.knowledge_loaded  2
+PASS  cb.hub.readback  source=ecomops_chain_demo
+PASS  cb.no.second.source.of.truth  local products=0
+PASS  insight.connector.rows  rows=13 found=True
+PASS  insight.workflow.ran  nodes=7 steps=7 phase=completed
+PASS  insight.workflow.metric  metric_artifacts=1 artifacts=7
+PASS  chain.identity.reconcilable  status=published published_product_id=23
+PASS  chain.cleanup.archived  chain-1792566966
+
+18/18 passed
