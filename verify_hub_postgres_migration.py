@@ -24,7 +24,8 @@ def free_port():
 def request(port, path, data=None):
     body = None if data is None else json.dumps(data).encode('utf-8')
     req = urllib.request.Request(f'http://127.0.0.1:{port}{path}', data=body,
-                                 headers={'Content-Type': 'application/json', 'X-Hub-Token': 'test-token'})
+                                 headers={'Content-Type': 'application/json',
+                                          'X-Hub-Tenant': 'demo', 'X-Hub-Token': 'test-token'})
     with urllib.request.urlopen(req, timeout=5) as response:
         return json.load(response)
 

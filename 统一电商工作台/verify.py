@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -23,6 +24,8 @@ PORTAL = "http://127.0.0.1:8090"
 SHOP = "http://127.0.0.1:5000"
 SHOP_WEB = "http://127.0.0.1:8080"
 PORTAL_HEADERS = {"Host": "127.0.0.1:8090"}
+HUB_BASE = "http://127.0.0.1:8120"
+HUB_TOKEN = os.environ.get("DATA_HUB_TOKEN", "hub-local-token")
 
 
 def get(url: str, headers: dict | None = None) -> tuple[int, str]:
@@ -90,6 +93,50 @@ def check_deep_links() -> None:
         assert code == 200, f"深链 {path} 返回 {code}"
 
 
+def _status_code(
+    url: str,
+    headers: dict | None = None,
+    method: str = "GET",
+    body: dict | None = None,
+) -> int:
+    data = json.dumps(body or {}).encode("utf-8") if method == "POST" else None
+    request = Request(url, data=data, headers=headers or {}, method=method)
+    try:
+        with urlopen(request, timeout=8) as response:
+            return response.status
+    except HTTPError as exc:
+        return exc.code
+
+
+def check_hub_authz() -> None:
+    """令牌必须配置且与租户绑定，跨租户请求一律拒绝。"""
+    valid = {"X-Hub-Tenant": "demo", "X-Hub-Token": HUB_TOKEN}
+    assert _status_code(f"{HUB_BASE}/hub/stats") == 401
+    assert _status_code(f"{HUB_BASE}/hub/stats", {"X-Hub-Token": HUB_TOKEN}) == 401
+    assert _status_code(f"{HUB_BASE}/hub/stats", valid) == 200
+    assert _status_code(
+        f"{HUB_BASE}/hub/stats",
+        {"X-Hub-Tenant": "other", "X-Hub-Token": HUB_TOKEN},
+    ) == 401
+    assert _status_code(f"{HUB_BASE}/hub/stats?tenant=other", valid) == 403
+    # 写路径：body 里的 tenant_slug 越过令牌租户，必须在落库前拒绝。
+    assert _status_code(
+        f"{HUB_BASE}/hub/ingest",
+        {**valid, "Content-Type": "application/json"},
+        method="POST",
+        body={"tenant_slug": "other", "items": [{"external_id": "authz-probe"}]},
+    ) == 403
+    assert _status_code(f"{HUB_BASE}/health") == 200
+
+
+def check_douyin_sync_is_protected() -> None:
+    assert _status_code(
+        "http://127.0.0.1:8000/api/v1/integrations/douyin/sync",
+        {"Content-Type": "application/json"},
+        method="POST",
+    ) == 401
+
+
 def main() -> int:
     status = check_services()
     check_entries()
@@ -97,8 +144,11 @@ def main() -> int:
     check_log_not_exposed()
     check_portal_session_does_not_leak()
     check_deep_links()
+    check_hub_authz()
+    check_douyin_sync_is_protected()
     print(f"PASS  服务状态 {status}")
     print("PASS  四个入口、事件端点鉴权、日志保护、会话接口、模块深链")
+    print("PASS  data-hub 租户隔离、抖店同步写接口鉴权")
 
     print("--- 跨系统订单与库存联动 ---")
     subprocess.run(

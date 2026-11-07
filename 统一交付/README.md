@@ -47,8 +47,8 @@
 | 序 | 事项 | 状态 | 证据位置 |
 |---|---|---|---|
 | 1 | 放行 PG 方言校验，迁移脚本遇未建模列硬失败 | 已完成。未建模表与含数据的未建模列均拒绝迁移并返回非零退出码 | `flask_shop/config.py:149`、`flask_shop/scripts/migrate_to_postgres.py` |
-| 2 | data-hub 令牌 fail-closed 且绑定租户，抖店同步写接口补鉴权 | 待做 | `apps/data-hub/app.py:60-70`、`backend/app/api/routes/integrations.py:41,177` |
-| 3 | 已有商品售价仅在新建时初始化 | 待做 | `flask_shop/flask_shop/utils/hub_sync.py:135-136` |
+| 2 | data-hub 令牌 fail-closed 且绑定租户，抖店同步写接口补鉴权 | 已完成 | `apps/data-hub/app.py`、`backend/app/api/routes/integrations.py` |
+| 3 | 已有商品售价仅在新建时初始化 | 已完成 | `flask_shop/flask_shop/utils/hub_sync.py`、`tests/test_hub_sync_price.py` |
 | 4 | 单一令牌源、回跳契约、统一登出广播、上游故障区分 401 与 503 | 已完成 | `vue_shop/src/views/ModuleHostView.vue`、`frontend/src/app/unified-login.ts` |
 | 5 | 重写验收脚本，替换已失效的 `/portal/login` 与旧 cookie 断言 | 已完成。改为校验当前工作台契约，并调用联动验证 | `统一电商工作台/verify.py` |
 | 6 | 演示订单从代码常量改为数据库投影表，测试不再依赖固定编号 | 已完成 | `backend/app/services/order_repository.py`、`backend/tests/test_api.py` |
@@ -90,6 +90,17 @@
 
 仍未完成：三个模块仍是三套独立前端由 iframe 承载；库存预警只有接口，前端没有展示位；内容平台尚未按低库存生成草稿。
 
-## 八、已知口径约束
+## 八、安全与权威边界（2026-11-07 傍晚已落地）
+
+六条必修至此全部完成。
+
+| 项 | 实现 | 位置 |
+|---|---|---|
+| data-hub 鉴权 | 未配置令牌时受保护端点一律 401；令牌必须与 `X-Hub-Tenant` 一一对应；请求体、路径或 query 里的目标租户不得越过令牌所属租户，越界返回 403 | `apps/data-hub/app.py`、`apps/data-hub/test_authz.py` |
+| 抖店真实同步 | `POST /douyin/sync` 补 `PRODUCT_WRITE` 动作鉴权，组织 ID 从已验证会话传入，不再使用固定 `DEFAULT_ORG` | `backend/app/api/routes/integrations.py`、`app/services/platform_sync.py` |
+| 售价权威 | hub 仅在新建商品时提供初始价，重复同步只改资料字段，商城改价与 SKU 定价不被覆盖 | `flask_shop/flask_shop/utils/hub_sync.py` |
+| 可重跑验收 | `verify.py` 覆盖 6 种 hub 请求组合、匿名抖店同步、模块深链与三段业务联动 | `统一电商工作台/verify.py` |
+
+## 九、已知口径约束
 
 历史报告里"功能全部跑通"的验收范围只覆盖无参 GET 与页面巡检，写接口、鉴权边界、跨租户路径均未纳入。该结论与本页必修清单并不矛盾，两者测的是不同对象。对外表述须把演示与生产分开。
