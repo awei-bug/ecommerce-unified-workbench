@@ -42,6 +42,18 @@ CS_ROOT = REPO_ROOT / "电商 B 端智能客服 SaaS 系统" / "flask_shop"
 CB_ROOT = REPO_ROOT / "跨境电商运营智能辅助系统" / "backend"
 INSIGHT_ROOT = REPO_ROOT / "多智能体业务洞察 Agent 集群" / "backend"
 
+# 历史四系统脚本，2026-10 编写。CS_ROOT 使用更早的客服目录旧名，
+# RAG_ROOT 与 INSIGHT_ROOT 指向 2026-11-07 已清理的两个项目。
+# 三者均不存在，脚本已停用，避免以隐晦的 import 错误误导后来者。
+# 当前验收入口见 三个电商系统联调说明.md 与 统一交付/README.md。
+_MISSING = [str(p) for p in (CS_ROOT, RAG_ROOT, INSIGHT_ROOT) if not p.exists()]
+if _MISSING:
+    raise SystemExit(
+        "历史脚本已停用，依赖目录不存在：\n  "
+        + "\n  ".join(_MISSING)
+        + "\n当前验收入口见 三个电商系统联调说明.md 与 统一交付/README.md"
+    )
+
 CHECKS: list[tuple[str, bool, str]] = []
 
 
