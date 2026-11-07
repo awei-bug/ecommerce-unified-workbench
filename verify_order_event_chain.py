@@ -1,27 +1,35 @@
-"""跨系统订单联动验证。
+"""跨系统联动验证。
 
-触发一笔真实的云购订单，等待后台事件消费器把它投影到跨境订单读模型，
-并断言投影行的来源、平台与幂等键。脚本不 mock 任何一端的业务逻辑。
+触发一笔真实的云购订单，依次断言三条链路：
+1. 订单投影到跨境订单读模型；
+2. 库存变动投影到跨境库存读模型，并出现在低库存预警接口；
+3. 内容平台按同一批库存事件生成补货文案草稿。
+脚本不 mock 任何一端的业务逻辑，数据全部由真实事件驱动。
 
-前置：统一电商工作台已启动（start.py 会拉起 order-events 消费进程）。
+前置：统一电商工作台已启动（start.py 会拉起 order-events 与 content-drafts 进程）。
 用法：py -3 verify_order_event_chain.py
 """
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 import time
 from pathlib import Path
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 SHOP_BASE = "http://127.0.0.1:5000"
 CROSS_BASE = "http://127.0.0.1:8000"
+CONTENT_BASE = "http://127.0.0.1:3100"
 PORTAL_STATUS = "http://127.0.0.1:8090/status"
 CROSS_DB = ROOT / "跨境电商运营智能辅助系统" / "backend" / "data" / "ops_workbench.db"
+
+# 与 start.py 注入的消费器阈值保持一致：下单数量要能把库存压到阈值以下。
+DRAFT_THRESHOLD = int(os.environ.get("INVENTORY_LOW_STOCK_THRESHOLD", "25"))
 
 LOGIN = {"name": "admin", "pwd": "123456", "tenant_slug": "demo"}
 
@@ -69,7 +77,7 @@ def login() -> tuple[str, int]:
     return data["token"], int(data["tenant"]["id"])
 
 
-def pick_product(token: str) -> tuple[int, int | None]:
+def pick_product(token: str) -> tuple[int, int | None, int]:
     headers = {"token": token}
     for path in ("/products/?page=1&limit=50", "/products/"):
         try:
@@ -83,10 +91,13 @@ def pick_product(token: str) -> tuple[int, int | None]:
             skus = item.get("skus") or []
             active = [s for s in skus if isinstance(s, dict) and s.get("status", 1) == 1]
             if active:
-                return int(pid), int(active[0]["id"])
-            stock = item.get("number", item.get("stock", 0)) or 0
-            if float(stock) > 0:
-                return int(pid), None
+                stock = int(active[0].get("stock") or 0)
+                if stock > 0:
+                    return int(pid), int(active[0]["id"]), stock
+                continue
+            stock = int(item.get("number", item.get("stock", 0)) or 0)
+            if stock > 0:
+                return int(pid), None, stock
     raise SystemExit("未找到可售商品，请先在云购后台录入一个有库存的商品")
 
 
@@ -167,13 +178,31 @@ def check_inventory_alert(token: str, product_id: int):
     )
 
 
+def content_draft(product_id: int, token: str):
+    """内容平台的补货草稿：由 content-drafts 进程消费同一批库存事件生成。"""
+    try:
+        body = http_json(
+            "GET", f"{CONTENT_BASE}/api/inventory-drafts?limit=50",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:200]
+        raise SystemExit(f"内容平台草稿接口返回 {exc.code}: {detail}")
+    items = ((body.get("data") or {}).get("items")) or []
+    return next((i for i in items if str(i.get("productId")) == str(product_id)), None)
+
+
 def main() -> int:
     check_services()
     token, tenant_id = login()
     ensure_mapping(tenant_id)
-    pid, sku_id = pick_product(token)
+    pid, sku_id, stock = pick_product(token)
 
-    item = {"pid": pid, "number": 1}
+    # 把库存打到阈值以下，才能触发低库存草稿；不足阈值时扣 1 件即可。
+    target = max(DRAFT_THRESHOLD - 5, 0)
+    quantity = max(1, stock - target) if stock > target else 1
+
+    item = {"pid": pid, "number": quantity}
     if sku_id:
         item["sku_id"] = sku_id
     order = http_json(
@@ -184,7 +213,7 @@ def main() -> int:
     if order.get("status") != 200:
         raise SystemExit(f"云购下单失败: {order}")
     order_no = order["data"]["order_no"]
-    print(f"云购已下单 {order_no}，等待跨境读模型投影 ...")
+    print(f"云购已下单 {order_no} x{quantity}，等待跨境与内容平台消费 ...")
 
     deadline = time.time() + 45
     while time.time() < deadline:
@@ -216,6 +245,24 @@ def main() -> int:
             assert alert["source"] == "event", "预警数据不是来自真实事件"
             print(f"PASS  低库存预警接口读到真实事件数据 "
                   f"stock_after={alert['stock_after']}")
+
+            draft_deadline = time.time() + 90
+            draft = None
+            while time.time() < draft_deadline:
+                draft = content_draft(pid, token)
+                if draft is not None:
+                    break
+                time.sleep(3)
+            assert draft is not None, (
+                "内容平台未生成补货草稿。检查 .runtime/content-drafts.log 与 "
+                "EVENTS_URL / INVENTORY_LOW_STOCK_THRESHOLD。"
+            )
+            assert draft["source"] == "yungou.stock.changed", draft["source"]
+            assert int(draft["eventId"]) > 0, "草稿缺少事件幂等键"
+            assert draft["stockAfter"] <= DRAFT_THRESHOLD, draft["stockAfter"]
+            print("PASS  内容平台已按库存事件生成补货草稿")
+            print(f"      event_id={draft['eventId']} kind={draft['kind']} "
+                  f"stock_after={draft['stockAfter']} title={draft['title']}")
             return 0
         time.sleep(2)
 

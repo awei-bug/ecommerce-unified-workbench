@@ -132,10 +132,18 @@ def main():
                      ("UNIFIED_CROSS_DATABASE_URL", cross_env)):
         if key in os.environ:
             env["DATABASE_URL"] = os.environ[key]
+    # 内容平台也要消费云购库存事件：同一份令牌，独立进程。
+    content_env.update({
+        "EVENTS_URL": "http://127.0.0.1:5000/api/events",
+        "EVENTS_TOKEN": events_token,
+        "EVENTS_POLL_INTERVAL_SECONDS": "10",
+        "INVENTORY_LOW_STOCK_THRESHOLD": os.environ.get("INVENTORY_LOW_STOCK_THRESHOLD", "25"),
+    })
     specs = [
         ("hub", [sys.executable, "apps/data-hub/app.py"], CONTENT, hub_env),
         ("orchestrator", [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8110"], CONTENT / "apps/ai-orchestrator", orchestrator_env),
         ("content-api", [node, "apps/api-server/src/server.js"], CONTENT, content_env),
+        ("content-drafts", [node, "apps/api-server/scripts/run-inventory-drafts.mjs"], CONTENT, content_env),
         ("content-web", [node, str(CONTENT / "node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", "5174", "--strictPort"], CONTENT / "apps/studio-web", content_web_env),
         ("shop-api", [str(shop_python), "run_dev_api.py"], SHOP / "flask_shop", shop_env),
         ("shop-web", [node, str(SHOP / "vue_shop/node_modules/@vue/cli-service/bin/vue-cli-service.js"), "serve", "--host", "127.0.0.1", "--port", "8080"], SHOP / "vue_shop", shop_web_env),
@@ -155,12 +163,14 @@ def main():
                 return
             if self.path == "/status":
                 groups = {"content": (("content-api", 3100), ("content-web", 5174), ("orchestrator", 8110), ("hub", 8120)),
-                          "shop": (("shop-api", 5000), ("shop-web", 8080)), "cross": (("cross-api", 8000), ("cross-web", 5175))}
+                          "shop": (("shop-api", 5000), ("shop-web", 8080)), "cross": (("cross-api", 8000), ("cross-web", 5175)),
+                          # 无监听端口的后台进程：只按进程存活判定，别把「没端口」当成没启动。
+                          "pipelines": (("order-events", 0), ("content-drafts", 0))}
                 status = {}
                 for key, entries in groups.items():
                     if any(name not in processes or processes[name].poll() is not None for name, _ in entries):
                         status[key] = "failed"
-                    elif all(port_listening(port) for _, port in entries):
+                    elif all(port == 0 or port_listening(port) for _, port in entries):
                         status[key] = "running"
                     else:
                         status[key] = "starting"

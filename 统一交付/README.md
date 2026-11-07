@@ -71,7 +71,7 @@
 
 部署提示：`backend/.env` 关闭了 `DATABASE_AUTO_CREATE`，新环境须先执行 `backend/scripts/init_order_projection.py` 或 `alembic upgrade head`（版本 `20261107_0024`）。缺表时消费器会每轮报错重试，日志在 `.runtime/order-events.log`，水位不会误推进。
 
-库存事件已接通，低库存预警现在读真实事件数据。下一阶段让预警驱动内容平台生成草稿，再回推 hub 与云购上架。UI 契约层排在数据流之后。
+库存事件已接通，低库存预警现在读真实事件数据。第三条链路（库存事件驱动内容草稿）见第九节。UI 源码层合并仍未开始。
 
 ## 七、界面契约层（2026-11-07 傍晚已落地）
 
@@ -88,7 +88,7 @@
 
 验收：`统一电商工作台/verify.py` 把深链、端点鉴权、日志保护、会话接口与订单库存联动串成一条命令。三个前端各自构建与测试全绿，跨境后端新增 3 项故障语义测试。
 
-仍未完成：三个模块仍是三套独立前端由 iframe 承载；库存预警只有接口，前端没有展示位；内容平台尚未按低库存生成草稿。
+仍未完成：三个模块仍是三套独立前端由 iframe 承载，源码层没有合并。
 
 ## 八、安全与权威边界（2026-11-07 傍晚已落地）
 
@@ -101,6 +101,24 @@
 | 售价权威 | hub 仅在新建商品时提供初始价，重复同步只改资料字段，商城改价与 SKU 定价不被覆盖 | `flask_shop/flask_shop/utils/hub_sync.py` |
 | 可重跑验收 | `verify.py` 覆盖 6 种 hub 请求组合、匿名抖店同步、模块深链与三段业务联动 | `统一电商工作台/verify.py` |
 
-## 九、已知口径约束
+## 九、库存事件驱动的补货草稿（2026-11-07 夜已落地）
+
+第三条链路：同一批云购库存事件，跨境用它做预警，内容平台用它生成草稿。两个消费方各自持水位，互不影响。
+
+| 环节 | 实现 | 位置 |
+|---|---|---|
+| 事件契约 | `stock.changed` 增补 `external_id`（取 `t_product_knowledge`），商品在数据中心一侧的标识随事件下发；本地自建商品该字段为 null | `flask_shop/flask_shop/utils/stock.py` |
+| 消费方 | 内容平台独立 worker 轮询同一端点，`event_id` 作幂等键，水位表 `inventory_draft_watermark` 记录断点，低于阈值才生成草稿 | `apps/api-server/src/services/inventory-draft-consumer.js`、`src/repositories/inventory-drafts-repository.js` |
+| 存储 | `inventory_content_drafts`，`event_id` 唯一约束，按租户过滤；建表在仓储层幂等执行，不动 `infra/sql` 基线 | 同上 |
+| 查询 | `GET /api/inventory-drafts`，走云购会话身份，按 `identity.tenantId` 过滤，只读 | `apps/api-server/src/routes/inventory-drafts.js` |
+| 页面 | 跨境新增 `/inventory` 「库存预警」页，读事件投影，展示商品、库存、变动、来源与事件时间 | `frontend/src/views/InventoryAlertsView.vue` |
+| 编排 | 工作台拉起 `content-drafts` 进程；`/status` 新增 `pipelines` 组，按进程存活判定 `order-events` 与 `content-drafts` | `统一电商工作台/start.py` |
+| 验证 | `verify_order_event_chain.py` 下单把库存压到阈值以下，断言草稿生成且 `eventId` 可回溯；`verify.py` 一条命令串起三段联动 | 仓库根目录、工作台目录 |
+
+阈值由工作台注入 `INVENTORY_LOW_STOCK_THRESHOLD`（默认 25），消费间隔 10 秒。草稿文案是确定性模板，不调用大模型：这一层的价值在事件驱动与可追溯，接生成模型只需替换 `buildDraft` 一个函数。
+
+实测：下单 8 件后库存 27 → 20，云购事件 `event_id=18`，跨境预警与内容草稿同源；再跑一次 `event_id=20`，草稿表新增一行而非重复。
+
+## 十、已知口径约束
 
 历史报告里"功能全部跑通"的验收范围只覆盖无参 GET 与页面巡检，写接口、鉴权边界、跨租户路径均未纳入。该结论与本页必修清单并不矛盾，两者测的是不同对象。对外表述须把演示与生产分开。
