@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>商品协作</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <!-- 这个页面现在只作为「商品协作」模块的内容区被云购后台内嵌，
+       标题与操作栏由宿主提供，因此不再渲染自己的顶栏。 -->
+  <main class="embedded">
+    <div id="notice" class="notice" hidden></div>
+    <section id="products" class="products" aria-labelledby="product-heading">
+      <div class="product-intro"><h2 id="product-heading">授权店铺商品</h2><p>使用云购商家账号查看已授权的演示店铺商品。</p></div>
+      <p id="product-message" class="product-message" role="status" aria-live="polite"></p>
+      <div id="merchant-login" class="merchant-login merchant-login--unified">
+        <p>统一登录在商家后台完成。未登录或会话已失效时，请先登录商家后台。</p>
+        <a href="http://127.0.0.1:8080/admin/login" target="_top">前往商家后台登录</a>
+      </div>
+      <div id="merchant-workspace" hidden>
+        <div class="merchant-session"><span id="merchant-name"></span><button id="merchant-logout" type="button">退出商家账号</button></div>
+        <form id="product-search" class="product-search"><label>授权演示店铺<select name="shop_id" required disabled><option value="">正在加载店铺…</option></select></label><button type="submit" disabled>查看商品</button><button id="refresh-shops" type="button">刷新店铺</button><button id="more-shops" type="button" hidden>加载更多店铺</button></form>
+        <p class="product-hint">需要管理员先关联组织、授权店铺并开启商品查看权限。</p>
+        <div class="product-list" aria-live="polite"><p id="product-empty">选择店铺后查看商品。</p><ul id="product-results"></ul></div>
+        <div id="product-pagination" class="product-pagination" hidden><button id="previous-page" type="button">上一页</button><span id="page-label"></span><button id="next-page" type="button">下一页</button></div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

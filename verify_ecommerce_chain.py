@@ -39,7 +39,7 @@ REPO_ROOT = HERE.parent
 # 四个项目的路径。跨项目 import 用 sys.path 注入，互不依赖对方的 venv 配置。
 RAG_ROOT = REPO_ROOT / "企业级私有知识库与长期记忆问答平台"
 CS_ROOT = REPO_ROOT / "电商 B 端智能客服 SaaS 系统" / "flask_shop"
-CB_ROOT = REPO_ROOT / "跨境电商运营智能辅助 Multi-Agent 系统" / "backend"
+CB_ROOT = REPO_ROOT / "跨境电商运营智能辅助系统" / "backend"
 INSIGHT_ROOT = REPO_ROOT / "多智能体业务洞察 Agent 集群" / "backend"
 
 CHECKS: list[tuple[str, bool, str]] = []
@@ -384,7 +384,7 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001
         check("hub.online", False, f"{type(exc).__name__}: {exc}")
         print("\ndata-hub 未运行。先启动：")
-        print('  cd "F:\\Python_code\\内容生成 Multi-Agent 协同编排系统"')
+        print('  cd "F:\\Python_code\\电商智能内容生成与商品知识平台"')
         print("  powershell -ExecutionPolicy Bypass -File scripts\\start-data-hub.ps1")
         print(f"\n{sum(1 for _, ok, _ in CHECKS if ok)}/{len(CHECKS)} passed")
         return 1
