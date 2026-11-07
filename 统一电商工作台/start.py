@@ -4,6 +4,7 @@ This is a development launcher, not a production service manager.
 """
 import json
 import os
+import secrets
 import shutil
 import signal
 import socket
@@ -91,6 +92,9 @@ def main():
     common = os.environ.copy()
     common.update(PYTHONUTF8="1", DATA_HUB_URL="http://127.0.0.1:8120",
                   DATA_HUB_TENANT_SLUG="demo", DATA_HUB_TOKEN=os.environ.get("DATA_HUB_TOKEN", "hub-local-token"))
+    # 每次启动生成独立的内网事件令牌，同时注入云购生产方与跨境消费方。
+    # 生产环境可用 UNIFIED_EVENTS_TOKEN 显式指定，避免把固定密钥写进代码。
+    events_token = os.environ.get("UNIFIED_EVENTS_TOKEN") or secrets.token_urlsafe(32)
     hub_env = common | {"HUB_HOST": "127.0.0.1", "HUB_PORT": "8120", "HUB_TOKENS": "demo:" + common["DATA_HUB_TOKEN"]}
     identity_url = os.environ.get("MERCHANT_IDENTITY_URL", "http://127.0.0.1:5000")
     # Content and cross both verify the merchant session against the shop service.
@@ -101,14 +105,22 @@ def main():
                             "MERCHANT_IDENTITY_URL": identity_url}
     orchestrator_env = common | {"API_SERVER_BASE_URL": "http://127.0.0.1:3100"}
     content_web_env = common | {"VITE_API_BASE_URL": "http://127.0.0.1:3100"}
-    shop_env = common | {"FLASK_PORT": "5000"}
+    shop_env = common | {
+        "FLASK_PORT": "5000",
+        "EVENTS_API_ENABLED": "1",
+        "EVENTS_API_TOKEN": events_token,
+    }
     shop_web_env = common | {"VUE_APP_API_PROXY_TARGET": "http://127.0.0.1:5000", "VUE_APP_PUBLIC_PATH": "/admin/"}
     # Product read is off by default in the cross service; the local workbench
     # demo needs it on for the 商品协作 page to list shops.
     # 演示数据已按要求清空，关闭启动时自动播种，否则空库会被重新填满。
     cross_env = common | {"MERCHANT_IDENTITY_URL": identity_url,
                           "MERCHANT_PRODUCT_READ_ENABLED": "true",
-                          "SEED_DEMO_DATA": "false"}
+                          "SEED_DEMO_DATA": "false",
+                          "EVENTS_ENABLED": "1",
+                          "EVENTS_URL": "http://127.0.0.1:5000/api/events",
+                          "EVENTS_TOKEN": events_token,
+                          "EVENTS_POLL_INTERVAL_SECONDS": "10"}
     # The cross preview database is now migrated to alembic head, so the default
     # run uses it directly instead of a throwaway copy.
     cross_env.setdefault("DATABASE_URL", "sqlite+pysqlite:///" + str(CROSS / "backend/data/ops_workbench.db").replace("\\", "/"))
@@ -129,6 +141,7 @@ def main():
         ("shop-web", [node, str(SHOP / "vue_shop/node_modules/@vue/cli-service/bin/vue-cli-service.js"), "serve", "--host", "127.0.0.1", "--port", "8080"], SHOP / "vue_shop", shop_web_env),
         ("cross-api", [str(cross_python), "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"], CROSS / "backend", cross_env),
         ("cross-web", [node, str(CROSS / "frontend/node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", "5175", "--strictPort"], CROSS / "frontend", cross_web_env),
+        ("order-events", [str(cross_python), "-m", "app.services.order_event_consumer"], CROSS / "backend", cross_env),
     ]
 
     portal = PortalAPI()

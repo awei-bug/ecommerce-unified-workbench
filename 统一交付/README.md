@@ -44,15 +44,34 @@
 
 ## 五、六条必修（按此顺序）
 
-| 序 | 事项 | 证据位置 |
-|---|---|---|
-| 1 | 放行 PG 方言校验，迁移脚本遇未建模列硬失败 | `flask_shop/config.py:149`、`flask_shop/scripts/migrate_to_postgres.py:112-118` |
-| 2 | data-hub 令牌 fail-closed 且绑定租户，抖店同步写接口补鉴权 | `apps/data-hub/app.py:60-70`、`backend/app/api/routes/integrations.py:41,177` |
-| 3 | 已有商品售价仅在新建时初始化 | `flask_shop/flask_shop/utils/hub_sync.py:135-136` |
-| 4 | 单一令牌源、回跳契约、统一登出广播、上游故障区分 401 与 503 | `vue_shop/src/views/ModuleHostView.vue`、`frontend/src/app/unified-login.ts` |
-| 5 | 重写验收脚本，替换已失效的 `/portal/login` 与旧 cookie 断言 | `统一电商工作台/verify.py:103,125` |
-| 6 | 演示订单从代码常量改为数据库表，四项测试改用夹具生成数据 | `backend/app/services/order_repository.py:41-222` |
+| 序 | 事项 | 状态 | 证据位置 |
+|---|---|---|---|
+| 1 | 放行 PG 方言校验，迁移脚本遇未建模列硬失败 | 部分。方言已放行并补显式建表脚本，丢列硬失败待做 | `flask_shop/config.py:149`、`flask_shop/scripts/create_domain_events_table.py` |
+| 2 | data-hub 令牌 fail-closed 且绑定租户，抖店同步写接口补鉴权 | 待做 | `apps/data-hub/app.py:60-70`、`backend/app/api/routes/integrations.py:41,177` |
+| 3 | 已有商品售价仅在新建时初始化 | 待做 | `flask_shop/flask_shop/utils/hub_sync.py:135-136` |
+| 4 | 单一令牌源、回跳契约、统一登出广播、上游故障区分 401 与 503 | 待做 | `vue_shop/src/views/ModuleHostView.vue`、`frontend/src/app/unified-login.ts` |
+| 5 | 重写验收脚本，替换已失效的 `/portal/login` 与旧 cookie 断言 | 待做 | `统一电商工作台/verify.py:103,125` |
+| 6 | 演示订单从代码常量改为数据库投影表，测试不再依赖固定编号 | 已完成 | `backend/app/services/order_repository.py`、`backend/tests/test_api.py` |
 
-## 六、已知口径约束
+## 六、跨系统订单联动（2026-11-07 已落地）
+
+主线从「门户拼装」推进到业务事实联动，第一条链路已打通。
+
+| 环节 | 实现 | 位置 |
+|---|---|---|
+| 生产方 | 订单、明细与库存扣减共用 commit，同事务写 `t_domain_events`；库存失败时回滚不残留 | `flask_shop/flask_shop/order/views.py`、`models.py` 的 `DomainEvent` |
+| 契约 | `GET /api/events?after=&limit=&tenant_id=`，自增 id 作水位，平台令牌 fail-closed，跨租户查询显式绕过自动隔离 | `flask_shop/flask_shop/events/` |
+| 消费方 | `order_projections` 读模型与 `event_watermarks` 水位表，event_id 唯一约束幂等，未激活租户映射丢弃 | `backend/app/services/order_event_consumer.py`、`alembic/versions/20261107_0024_order_projection.py` |
+| 页面 | 跨境订单列表、详情、动作任务改读投影表；演示订单改为显式种子，仅在 `seed_demo_data` 开启时写入 | `backend/app/services/order_repository.py` |
+| 编排 | 工作台拉起 `order-events` 消费进程，启动时生成一次性内网令牌并注入两端 | `统一电商工作台/start.py` |
+| 验证 | `verify_order_event_chain.py` 触发一笔真实云购订单，等待跨境读模型出现该订单并断言来源与幂等键 | 仓库根目录 |
+
+回归结果：云购新增 3 项事件测试，跨境新增 3 项消费契约测试，原有套件全绿。`verify_order_event_chain.py` 实机跑通，云购下单后跨境读模型出现该订单，携带 event_id 与真实金额，非演示标记。
+
+部署提示：`backend/.env` 关闭了 `DATABASE_AUTO_CREATE`，新环境须先执行 `backend/scripts/init_order_projection.py` 或 `alembic upgrade head`（版本 `20261107_0024`）。缺表时消费器会每轮报错重试，日志在 `.runtime/order-events.log`，水位不会误推进。
+
+下一阶段接库存事件，让低库存驱动跨境预警与内容平台草稿，再把这份草稿回推 hub 与云购上架。UI 契约层排在数据流之后。
+
+## 七、已知口径约束
 
 历史报告里"功能全部跑通"的验收范围只覆盖无参 GET 与页面巡检，写接口、鉴权边界、跨租户路径均未纳入。该结论与本页必修清单并不矛盾，两者测的是不同对象。对外表述须把演示与生产分开。
