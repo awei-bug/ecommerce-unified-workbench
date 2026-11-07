@@ -49,7 +49,7 @@
 | 1 | 放行 PG 方言校验，迁移脚本遇未建模列硬失败 | 已完成。未建模表与含数据的未建模列均拒绝迁移并返回非零退出码 | `flask_shop/config.py:149`、`flask_shop/scripts/migrate_to_postgres.py` |
 | 2 | data-hub 令牌 fail-closed 且绑定租户，抖店同步写接口补鉴权 | 待做 | `apps/data-hub/app.py:60-70`、`backend/app/api/routes/integrations.py:41,177` |
 | 3 | 已有商品售价仅在新建时初始化 | 待做 | `flask_shop/flask_shop/utils/hub_sync.py:135-136` |
-| 4 | 单一令牌源、回跳契约、统一登出广播、上游故障区分 401 与 503 | 待做 | `vue_shop/src/views/ModuleHostView.vue`、`frontend/src/app/unified-login.ts` |
+| 4 | 单一令牌源、回跳契约、统一登出广播、上游故障区分 401 与 503 | 已完成 | `vue_shop/src/views/ModuleHostView.vue`、`frontend/src/app/unified-login.ts` |
 | 5 | 重写验收脚本，替换已失效的 `/portal/login` 与旧 cookie 断言 | 已完成。改为校验当前工作台契约，并调用联动验证 | `统一电商工作台/verify.py` |
 | 6 | 演示订单从代码常量改为数据库投影表，测试不再依赖固定编号 | 已完成 | `backend/app/services/order_repository.py`、`backend/tests/test_api.py` |
 
@@ -73,6 +73,23 @@
 
 库存事件已接通，低库存预警现在读真实事件数据。下一阶段让预警驱动内容平台生成草稿，再回推 hub 与云购上架。UI 契约层排在数据流之后。
 
-## 七、已知口径约束
+## 七、界面契约层（2026-11-07 傍晚已落地）
+
+| 项 | 实现 | 位置 |
+|---|---|---|
+| 深链与刷新 | devServer 配置 history 回退，`/admin/module_*` 直接返回 200 | `vue_shop/vue.config.js` |
+| 重新加载 | iframe 改绑带 nonce 的 `currentSrc`，按钮不再空转 | `vue_shop/src/views/ModuleHostView.vue` |
+| 双套侧栏 | 内嵌时隐藏跨境 SideNav 并把布局左内边距归零 | `frontend/src/components/layout/AppShell.vue` |
+| 会话下发 | iframe 载入后 postMessage 下发令牌，只接受宿主 origin 且来自父窗口 | `ModuleHostView.vue`、`AppShell.vue`、`studio-web/src/session.js` |
+| 回跳契约 | 登录页解析 `redirect` 与 `module_state`，子应用 URL 走 origin 白名单；iframe 内失效改顶层跳转，登录页不再嵌在框里 | `LoginView.vue`、`frontend/src/app/unified-login.ts` |
+| 登出广播 | 宿主清自身并通知所有子应用清理各自存储 | `HomeView.vue` |
+| 路由同步 | 子应用把当前页标题上报宿主，模块栏显示「当前页面」 | `AppShell.vue`、`ModuleHostView.vue` |
+| 故障语义 | 上游不可达或 5xx 返回 503，4xx 才是 401，前端不再被误登出 | `backend/app/services/merchant_session.py`、`app/core/identity.py` |
+
+验收：`统一电商工作台/verify.py` 把深链、端点鉴权、日志保护、会话接口与订单库存联动串成一条命令。三个前端各自构建与测试全绿，跨境后端新增 3 项故障语义测试。
+
+仍未完成：三个模块仍是三套独立前端由 iframe 承载；库存预警只有接口，前端没有展示位；内容平台尚未按低库存生成草稿。
+
+## 八、已知口径约束
 
 历史报告里"功能全部跑通"的验收范围只覆盖无参 GET 与页面巡检，写接口、鉴权边界、跨租户路径均未纳入。该结论与本页必修清单并不矛盾，两者测的是不同对象。对外表述须把演示与生产分开。

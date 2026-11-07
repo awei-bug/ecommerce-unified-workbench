@@ -77,13 +77,17 @@ def check_portal_session_does_not_leak() -> None:
     assert "password" not in lowered and "access_token" not in lowered, "会话接口泄露凭证"
 
 
-def report_deep_link_gap() -> None:
-    """宿主 history 回退未配置，深链刷新仍 404。只报告，不作为验收失败。"""
-    try:
-        code, _ = get(f"{SHOP_WEB}/admin/module_cross")
-    except HTTPError as exc:
-        code = exc.code
-    print(f"  已知缺口 深链 /admin/module_cross 返回 {code}，需配置 history 回退")
+def check_deep_links() -> None:
+    """history 回退已配置，深链与刷新必须直接返回宿主页面。"""
+    for path in (
+        "/admin/module_cross",
+        "/admin/module_content",
+        "/admin/module_products",
+        "/admin/login",
+    ):
+        # 浏览器刷新会带 text/html，history 回退中间件据此判断是否回退。
+        code, _ = get(f"{SHOP_WEB}{path}", {"Accept": "text/html"})
+        assert code == 200, f"深链 {path} 返回 {code}"
 
 
 def main() -> int:
@@ -92,10 +96,9 @@ def main() -> int:
     check_events_endpoint_is_closed()
     check_log_not_exposed()
     check_portal_session_does_not_leak()
+    check_deep_links()
     print(f"PASS  服务状态 {status}")
-    print("PASS  四个入口、事件端点鉴权、日志保护、会话接口")
-
-    report_deep_link_gap()
+    print("PASS  四个入口、事件端点鉴权、日志保护、会话接口、模块深链")
 
     print("--- 跨系统订单与库存联动 ---")
     subprocess.run(
