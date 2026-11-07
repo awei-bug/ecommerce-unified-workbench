@@ -178,18 +178,52 @@ def check_inventory_alert(token: str, product_id: int):
     )
 
 
-def content_draft(product_id: int, token: str):
-    """内容平台的补货草稿：由 content-drafts 进程消费同一批库存事件生成。"""
+def all_drafts(product_id: int, token: str) -> list[dict]:
+    """该商品在内容平台的全部补货草稿（按 id 倒序，最新在前）。"""
     try:
         body = http_json(
-            "GET", f"{CONTENT_BASE}/api/inventory-drafts?limit=50",
+            "GET", f"{CONTENT_BASE}/api/inventory-drafts?limit=200",
             headers={"Authorization": f"Bearer {token}"},
         )
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:200]
         raise SystemExit(f"内容平台草稿接口返回 {exc.code}: {detail}")
     items = ((body.get("data") or {}).get("items")) or []
-    return next((i for i in items if str(i.get("productId")) == str(product_id)), None)
+    return [i for i in items if str(i.get("productId")) == str(product_id)]
+
+
+def content_draft(product_id: int, token: str):
+    drafts = all_drafts(product_id, token)
+    return drafts[0] if drafts else None
+
+
+def publish_to_hub(token: str, product_id: int) -> dict:
+    """商品上行：只有先登记到数据中心，库存事件才会带 external_id。"""
+    body = http_json(
+        "POST", f"{SHOP_BASE}/products/hub/publish/",
+        {"product_id": product_id}, headers={"token": token},
+    )
+    if body.get("status") != 200:
+        raise SystemExit(f"商品上行失败: {body}")
+    return body["data"]
+
+
+def sync_from_hub(token: str) -> dict:
+    body = http_json(
+        "POST", f"{SHOP_BASE}/products/hub/sync/",
+        {"publish": True}, headers={"token": token},
+    )
+    if body.get("status") != 200:
+        raise SystemExit(f"数据中心同步失败: {body}")
+    return body["data"]
+
+
+def product_copy(token: str, product_id: int) -> tuple[str, str]:
+    body = http_json("GET", f"{SHOP_BASE}/products/?page=1&limit=50", headers={"token": token})
+    for item in _first_item_list(body):
+        if int(item.get("id") or 0) == product_id:
+            return item.get("introduce") or "", item.get("sell_points") or ""
+    return "", ""
 
 
 def main() -> int:
@@ -197,6 +231,14 @@ def main() -> int:
     token, tenant_id = login()
     ensure_mapping(tenant_id)
     pid, sku_id, stock = pick_product(token)
+
+    published = publish_to_hub(token, pid)
+    print(f"商品已登记到数据中心 external_id={published['external_id']} "
+          f"（{published['action']}）")
+
+    # 下单前先记下已有草稿的事件水位：草稿可能在下单后 1 秒内就生成，
+    # 若等前面的投影断言跑完再取基线，会把本次草稿错当成历史数据。
+    baseline = max((int(d["eventId"]) for d in all_drafts(pid, token)), default=0)
 
     # 把库存打到阈值以下，才能触发低库存草稿；不足阈值时扣 1 件即可。
     target = max(DRAFT_THRESHOLD - 5, 0)
@@ -246,23 +288,35 @@ def main() -> int:
             print(f"PASS  低库存预警接口读到真实事件数据 "
                   f"stock_after={alert['stock_after']}")
 
-            draft_deadline = time.time() + 90
+            draft_deadline = time.time() + 120
             draft = None
             while time.time() < draft_deadline:
-                draft = content_draft(pid, token)
-                if draft is not None:
+                candidate = content_draft(pid, token)
+                # 只认本次下单产生的新事件：老草稿已经推送过，不能当作本次证据。
+                if candidate and int(candidate["eventId"]) > baseline \
+                        and candidate.get("hubStatus") == "pushed":
+                    draft = candidate
                     break
                 time.sleep(3)
             assert draft is not None, (
-                "内容平台未生成补货草稿。检查 .runtime/content-drafts.log 与 "
-                "EVENTS_URL / INVENTORY_LOW_STOCK_THRESHOLD。"
+                "内容平台未回推出新草稿。检查 .runtime/content-drafts.log、"
+                "EVENTS_URL 与 INVENTORY_LOW_STOCK_THRESHOLD。"
             )
             assert draft["source"] == "yungou.stock.changed", draft["source"]
-            assert int(draft["eventId"]) > 0, "草稿缺少事件幂等键"
+            assert draft["externalId"] == published["external_id"], draft.get("externalId")
             assert draft["stockAfter"] <= DRAFT_THRESHOLD, draft["stockAfter"]
-            print("PASS  内容平台已按库存事件生成补货草稿")
+            print("PASS  内容平台已生成补货草稿并回推数据中心")
             print(f"      event_id={draft['eventId']} kind={draft['kind']} "
-                  f"stock_after={draft['stockAfter']} title={draft['title']}")
+                  f"stock_after={draft['stockAfter']} hub={draft['hubStatus']}")
+
+            sync_from_hub(token)
+            introduce, sell_points = product_copy(token, pid)
+            assert "【运营提示】" in introduce, (
+                f"云购商品未吸收草稿文案，当前描述：{introduce[:80]}"
+            )
+            print("PASS  云购从数据中心同步后吸收草稿文案")
+            print(f"      商品描述尾部：{introduce[-60:]}")
+            print(f"      卖点：{sell_points[-40:]}")
             return 0
         time.sleep(2)
 

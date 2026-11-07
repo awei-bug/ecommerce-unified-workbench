@@ -101,9 +101,9 @@
 | 售价权威 | hub 仅在新建商品时提供初始价，重复同步只改资料字段，商城改价与 SKU 定价不被覆盖 | `flask_shop/flask_shop/utils/hub_sync.py` |
 | 可重跑验收 | `verify.py` 覆盖 6 种 hub 请求组合、匿名抖店同步、模块深链与三段业务联动 | `统一电商工作台/verify.py` |
 
-## 九、库存事件驱动的补货草稿（2026-11-07 夜已落地）
+## 九、库存事件驱动的补货草稿与商城闭环（2026-11-07 夜已落地）
 
-第三条链路：同一批云购库存事件，跨境用它做预警，内容平台用它生成草稿。两个消费方各自持水位，互不影响。
+第三条链路：同一批云购库存事件，跨境用它做预警，内容平台用它生成草稿并回推数据中心，商城再同步吸收。三个消费方各自持水位，互不影响。
 
 | 环节 | 实现 | 位置 |
 |---|---|---|
@@ -113,11 +113,16 @@
 | 查询 | `GET /api/inventory-drafts`，走云购会话身份，按 `identity.tenantId` 过滤，只读 | `apps/api-server/src/routes/inventory-drafts.js` |
 | 页面 | 跨境新增 `/inventory` 「库存预警」页，读事件投影，展示商品、库存、变动、来源与事件时间 | `frontend/src/views/InventoryAlertsView.vue` |
 | 编排 | 工作台拉起 `content-drafts` 进程；`/status` 新增 `pipelines` 组，按进程存活判定 `order-events` 与 `content-drafts` | `统一电商工作台/start.py` |
-| 验证 | `verify_order_event_chain.py` 下单把库存压到阈值以下，断言草稿生成且 `eventId` 可回溯；`verify.py` 一条命令串起三段联动 | 仓库根目录、工作台目录 |
+| 商品上行 | `POST /products/hub/publish/` 把商城自建商品登记到数据中心，`external_id` 为 `yg-{tenant}-{product}`，同时写 `t_product_knowledge` 建立绑定；重复上行复用同一身份，不产生第二个商品 | `flask_shop/utils/hub_publish.py`、`product/views.py` |
+| 草稿回推 | 有 `external_id` 时先读数据中心记录，整条合并后写回：只替换 `【运营提示】` 段与库存卖点，其余字段原样带回；回推失败只记 `hub_status=push_failed`，草稿不丢、水位照常推进 | `api-server/src/services/inventory-draft-consumer.js` |
+| 商城吸收 | 再次执行 `POST /products/hub/sync/`，云购商品描述与卖点吸收草稿文案，闭环回到商城 | `flask_shop/utils/hub_sync.py` |
+| 验证 | `verify_order_event_chain.py` 下单把库存压到阈值以下，断言草稿生成且 `eventId` 可回溯；`verify.py` 一条命令串起四段联动 | 仓库根目录、工作台目录 |
 
 阈值由工作台注入 `INVENTORY_LOW_STOCK_THRESHOLD`（默认 25），消费间隔 10 秒。草稿文案是确定性模板，不调用大模型：这一层的价值在事件驱动与可追溯，接生成模型只需替换 `buildDraft` 一个函数。
 
-实测：下单 8 件后库存 27 → 20，云购事件 `event_id=18`，跨境预警与内容草稿同源；再跑一次 `event_id=20`，草稿表新增一行而非重复。
+实测闭环：商品上行 `external_id=chain-…`，下单后库存 18 → 17，云购事件 `event_id=24`，内容平台草稿 `hubStatus=pushed`，再同步后云购商品描述出现「仅剩 17 件」，卖点追加「库存提示：当前仅剩 17 件」。
+
+一个已知折中：运营提示目前写在商品 `desc_zh` 尾部，而该字段是顾客可见的商品描述。更干净的做法是数据中心加独立的 `ops_note` 字段，商城只在后台展示。这一版先保证链路可验证，字段分层留待后续。
 
 ## 十、已知口径约束
 
