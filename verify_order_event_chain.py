@@ -19,6 +19,7 @@ from urllib.request import Request, urlopen
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 SHOP_BASE = "http://127.0.0.1:5000"
+CROSS_BASE = "http://127.0.0.1:8000"
 PORTAL_STATUS = "http://127.0.0.1:8090/status"
 CROSS_DB = ROOT / "跨境电商运营智能辅助系统" / "backend" / "data" / "ops_workbench.db"
 
@@ -135,6 +136,37 @@ def projection_count(order_no: str):
     }
 
 
+def inventory_projection(product_id: int):
+    if not CROSS_DB.exists():
+        return None
+    with sqlite3.connect(CROSS_DB) as conn:
+        row = conn.execute(
+            "SELECT event_id, stock_after, source, item_title "
+            "FROM inventory_projections WHERE product_id = ? "
+            "ORDER BY event_id DESC LIMIT 1", (str(product_id),)
+        ).fetchone()
+    if row is None:
+        return None
+    return {
+        "event_id": row[0],
+        "stock_after": row[1],
+        "source": row[2],
+        "item_title": row[3],
+    }
+
+
+def check_inventory_alert(token: str, product_id: int):
+    body = http_json(
+        "GET", f"{CROSS_BASE}/api/v1/inventory/alerts?threshold=10000",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    return next(
+        (item for item in body.get("items", [])
+         if item["product_id"] == str(product_id)),
+        None,
+    )
+
+
 def main() -> int:
     check_services()
     token, tenant_id = login()
@@ -165,6 +197,25 @@ def main() -> int:
             print("PASS  云购订单已出现在跨境读模型")
             print(f"      event_id={row['event_id']} shop={row['payload']['shop_id']} "
                   f"amount={row['payload']['amount']}")
+
+            stock_deadline = time.time() + 45
+            inventory = None
+            while time.time() < stock_deadline:
+                inventory = inventory_projection(pid)
+                if inventory is not None:
+                    break
+                time.sleep(2)
+            assert inventory is not None, "云购库存变动未投影到跨境读模型"
+            assert inventory["source"] == "event", "库存投影来源异常"
+            print("PASS  云购库存变动已出现在跨境读模型")
+            print(f"      event_id={inventory['event_id']} "
+                  f"stock_after={inventory['stock_after']} item={inventory['item_title']}")
+
+            alert = check_inventory_alert(token, pid)
+            assert alert is not None, "低库存预警接口未返回该商品"
+            assert alert["source"] == "event", "预警数据不是来自真实事件"
+            print(f"PASS  低库存预警接口读到真实事件数据 "
+                  f"stock_after={alert['stock_after']}")
             return 0
         time.sleep(2)
 

@@ -46,11 +46,11 @@
 
 | 序 | 事项 | 状态 | 证据位置 |
 |---|---|---|---|
-| 1 | 放行 PG 方言校验，迁移脚本遇未建模列硬失败 | 部分。方言已放行并补显式建表脚本，丢列硬失败待做 | `flask_shop/config.py:149`、`flask_shop/scripts/create_domain_events_table.py` |
+| 1 | 放行 PG 方言校验，迁移脚本遇未建模列硬失败 | 已完成。未建模表与含数据的未建模列均拒绝迁移并返回非零退出码 | `flask_shop/config.py:149`、`flask_shop/scripts/migrate_to_postgres.py` |
 | 2 | data-hub 令牌 fail-closed 且绑定租户，抖店同步写接口补鉴权 | 待做 | `apps/data-hub/app.py:60-70`、`backend/app/api/routes/integrations.py:41,177` |
 | 3 | 已有商品售价仅在新建时初始化 | 待做 | `flask_shop/flask_shop/utils/hub_sync.py:135-136` |
 | 4 | 单一令牌源、回跳契约、统一登出广播、上游故障区分 401 与 503 | 待做 | `vue_shop/src/views/ModuleHostView.vue`、`frontend/src/app/unified-login.ts` |
-| 5 | 重写验收脚本，替换已失效的 `/portal/login` 与旧 cookie 断言 | 待做 | `统一电商工作台/verify.py:103,125` |
+| 5 | 重写验收脚本，替换已失效的 `/portal/login` 与旧 cookie 断言 | 已完成。改为校验当前工作台契约，并调用联动验证 | `统一电商工作台/verify.py` |
 | 6 | 演示订单从代码常量改为数据库投影表，测试不再依赖固定编号 | 已完成 | `backend/app/services/order_repository.py`、`backend/tests/test_api.py` |
 
 ## 六、跨系统订单联动（2026-11-07 已落地）
@@ -63,14 +63,15 @@
 | 契约 | `GET /api/events?after=&limit=&tenant_id=`，自增 id 作水位，平台令牌 fail-closed，跨租户查询显式绕过自动隔离 | `flask_shop/flask_shop/events/` |
 | 消费方 | `order_projections` 读模型与 `event_watermarks` 水位表，event_id 唯一约束幂等，未激活租户映射丢弃 | `backend/app/services/order_event_consumer.py`、`alembic/versions/20261107_0024_order_projection.py` |
 | 页面 | 跨境订单列表、详情、动作任务改读投影表；演示订单改为显式种子，仅在 `seed_demo_data` 开启时写入 | `backend/app/services/order_repository.py` |
+| 第二条链路 | 云购库存扣减与回滚同事务写 `stock.changed`；跨境投影到 `inventory_projections`，`GET /api/v1/inventory/alerts` 读真实事件给出低库存预警 | `flask_shop/flask_shop/utils/stock.py`、`backend/app/api/routes/inventory.py` |
 | 编排 | 工作台拉起 `order-events` 消费进程，启动时生成一次性内网令牌并注入两端 | `统一电商工作台/start.py` |
-| 验证 | `verify_order_event_chain.py` 触发一笔真实云购订单，等待跨境读模型出现该订单并断言来源与幂等键 | 仓库根目录 |
+| 验证 | `verify_order_event_chain.py` 触发一笔真实云购订单，同时断言跨境订单投影、库存投影与预警接口；`统一电商工作台/verify.py` 校验当前工作台契约 | 仓库根目录、工作台目录 |
 
 回归结果：云购新增 3 项事件测试，跨境新增 3 项消费契约测试，原有套件全绿。`verify_order_event_chain.py` 实机跑通，云购下单后跨境读模型出现该订单，携带 event_id 与真实金额，非演示标记。
 
 部署提示：`backend/.env` 关闭了 `DATABASE_AUTO_CREATE`，新环境须先执行 `backend/scripts/init_order_projection.py` 或 `alembic upgrade head`（版本 `20261107_0024`）。缺表时消费器会每轮报错重试，日志在 `.runtime/order-events.log`，水位不会误推进。
 
-下一阶段接库存事件，让低库存驱动跨境预警与内容平台草稿，再把这份草稿回推 hub 与云购上架。UI 契约层排在数据流之后。
+库存事件已接通，低库存预警现在读真实事件数据。下一阶段让预警驱动内容平台生成草稿，再回推 hub 与云购上架。UI 契约层排在数据流之后。
 
 ## 七、已知口径约束
 
