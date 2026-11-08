@@ -31,7 +31,7 @@ jobs:
           python-version: "3.12"
 
       # --self-check 只依赖标准库：语法解析、相对链接校验、交付物齐备、
-      # 归档报告数量与 ADR 数量。不安装任何产品依赖，也不访问端口。
+      # 过程归档清理状态与 ADR 数量。不安装任何产品依赖，也不访问端口。
       - name: Verify delivery artifacts
         run: python verify_all.py --self-check --json self-check.json
 

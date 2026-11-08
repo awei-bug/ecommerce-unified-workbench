@@ -52,7 +52,6 @@ REQUIRED_FILES = (
     HERE / "统一电商工作台" / "start.py",
     HERE / ".github" / "workflows" / "ci.yml",
 )
-ARCHIVE_REPORT_COUNT = 15
 ADR_COUNT = 5
 
 # 已知偶发不稳定项：跨境 router.test.ts 在测试内动态 import 整个视图依赖树，
@@ -268,10 +267,17 @@ def self_checks() -> list[dict]:
         "全部可解析" if not broken else "; ".join(broken[:6]),
     ))
 
-    archive = sorted((HERE / "统一交付" / "archive").glob("*.md"))
+    delivery = HERE / "统一交付"
+    leftovers = [name for name in ("archive", "backups") if (delivery / name).exists()]
+    stray_docs = [
+        item.name for item in delivery.iterdir()
+        if item.is_file() and item.suffix == ".md" and item.name != "README.md"
+    ]
+    clean = not leftovers and not stray_docs
     results.append(_self_result(
-        "归档报告完整", len(archive) == ARCHIVE_REPORT_COUNT,
-        f"{len(archive)} 份（期望 {ARCHIVE_REPORT_COUNT}）",
+        "过程归档已清理", clean,
+        "统一交付/ 下仅 README.md" if clean
+        else f"残留目录 {leftovers}，散落文档 {stray_docs}",
     ))
 
     arch = (HERE / "ARCHITECTURE.md").read_text(encoding="utf-8")
