@@ -128,6 +128,37 @@
 
 `ops_note` 变化会计入 `content_hash` 并推进 `version`，因此下游按 `updated_at` 增量同步不会漏掉运营侧更新；重复上行同一商品会带回已有 `ops_note`，不会把内容平台刚生成的提示清空。
 
-## 十、已知口径约束
+## 十、统一经营看板与单一契约源（2026-11-08 已落地）
+
+### 为什么没有把三套前端合成一个工程
+
+上一轮建议「优先处理前端源码层合并」，回代码核查后该建议不成立，本轮予以纠正。实测依赖如下：
+
+| 项 | 宿主 vue_shop | 跨境 frontend | 内容 studio-web |
+|---|---|---|---|
+| 框架 | Vue 3.2 | Vue 3.5 | **React** |
+| 路由 | vue-router 4.0 | **vue-router 5.3** | React Router |
+| 构建 | vue-cli / webpack 5 | **Vite 8** | Vite |
+| 语言 | JavaScript | **TypeScript 6** | JSX |
+| 状态 | 无 | Pinia 4 + vue-query 5 | 自有 session |
+| UI | Element Plus 2.2 | Element Plus 2.14 | 自研 CSS |
+
+vue-router 主版本冲突、React 与 Vue 无法同 app 挂载、webpack 与 Vite 构建链不同，三者构成硬冲突。强行合并要重写路由与状态层、给宿主补 TS 工具链、对齐两套 Element Plus 与 CSS 变量，涉及跨境 46 个源文件并需全量回归，且会推翻已通过验收的运行态。**收益主要是源码目录位置，使用者感知不到**，与「先做好一个能用的」相悖。因此本轮把「一个系统」落在可验证的两处：数据聚合视图与单一契约源；iframe 承载作为明确边界保留。
+
+### 本轮落地
+
+| 项 | 实现 | 位置 |
+|---|---|---|
+| 服务端聚合 | `GET /api/unified/overview/`：同源单请求，服务端向 8000 / 3100 / 8120 取数并读本地库；每路独立超时 2.5s，失败标记 `unavailable` 且返回 null，不回填演示数据；上游地址与超时全部可由环境变量覆盖 | `flask_shop/flask_shop/unified/`、`config.py`、`tests/test_unified_overview.py` |
+| 默认首屏 | 新增「统一经营看板」并把登录后默认落点改为 `/unified`，一屏展示四路指标、最近订单、低库存预警、补货草稿与逐路健康状态 | `vue_shop/src/views/UnifiedDashboardView.vue` |
+| 单一契约源 | `src/unified/modules.js` 统一模块注册表、origin 白名单与默认落点；router、ModuleHostView、LoginView、HomeView 四处改为消费同一份 | `vue_shop/src/unified/modules.js` |
+| 顺带修的缺陷 | 子应用会话失效时原先写死跳 `/module_cross`，内容平台失效会误入跨境；现按当前宿主路由回跳 | `ModuleHostView.vue` |
+| 验收 | `verify.py` 断言聚合接口未登录拒绝、登录后四路全 ok 且各带 `latency_ms`；深链检查加入 `/admin/unified` | `统一电商工作台/verify.py` |
+
+### 边界
+
+三个模块仍是三套独立前端由 iframe 承载，源码层没有合并；看板是**聚合视图**，不是路由级集成。这一取舍的代价是深链、返回栈与跨模块状态仍需宿主协议维护，好处是三套已通过测试的前端与三条业务链路零改动。若后续要真正消除 iframe，应先把跨境升级到同一 vue-router 主版本并统一构建链，内容平台另需评估重写成本。
+
+## 十一、已知口径约束
 
 历史报告里"功能全部跑通"的验收范围只覆盖无参 GET 与页面巡检，写接口、鉴权边界、跨租户路径均未纳入。该结论与本页必修清单并不矛盾，两者测的是不同对象。对外表述须把演示与生产分开。
