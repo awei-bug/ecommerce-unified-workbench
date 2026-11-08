@@ -1,7 +1,10 @@
 """四条产品线的统一验证入口。
 
 默认跑所有不依赖运行时服务的测试；`--build` 追加前端构建，`--runtime`
-追加工作台契约与联动验收；`--self-check` 只做仓库内交付物自检（CI 用）。
+追加工作台契约与联动验收，`--self-check` 只做仓库内交付物自检（CI 用）。
+`--build` 会清空各前端 dist/，本环境的 safe-delete 垫片会把旧产物移入
+回收站，因此构建档自动追加回收站兜底清理；也可用
+`--purge-recycle-bin` 单独执行。
 
 设计约束：
 - 单项失败不中断其余检查，最终汇总决定退出码；
@@ -13,6 +16,7 @@
     py -3 verify_all.py
     py -3 verify_all.py --build --runtime
     py -3 verify_all.py --self-check
+    py -3 verify_all.py --purge-recycle-bin
     py -3 verify_all.py --json report.json
 """
 from __future__ import annotations
@@ -216,6 +220,77 @@ def _portal_ready() -> bool:
         return False
 
 
+# ---------------------------------------------------------------- 回收站清理
+
+# 目录删除（含 npm build 清空 dist/）会被本环境的 safe-delete 垫片改成移入
+# 回收站；在 $Recycle.Bin 内部用 .NET API 删除不会再入回收站，是唯一可靠
+# 的收尾手段。脚本先枚举再删除，最后回读三盘剩余数用于断言。
+_PURGE_SCRIPT = r'''
+$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$drives = @('C:','D:','F:')
+$targets = @()
+foreach ($drive in $drives) {
+  $root = $drive + '\' + '$Recycle.Bin' + '\' + $sid
+  if (!(Test-Path -LiteralPath $root)) { continue }
+  $targets += @(Get-ChildItem -LiteralPath $root -Force -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -ne 'desktop.ini' })
+}
+foreach ($item in $targets) {
+  try {
+    if ($item.PSIsContainer) { [System.IO.Directory]::Delete($item.FullName, $true) }
+    else { [System.IO.File]::Delete($item.FullName) }
+  } catch { }
+}
+$rest = @()
+foreach ($drive in $drives) {
+  $root = $drive + '\' + '$Recycle.Bin' + '\' + $sid
+  if (!(Test-Path -LiteralPath $root)) { $rest += 0; continue }
+  $rest += @(Get-ChildItem -LiteralPath $root -Force -ErrorAction SilentlyContinue |
+             Where-Object { $_.Name -ne 'desktop.ini' }).Count
+}
+"removed=$($targets.Count);remaining=$($rest -join ',')"
+'''
+
+
+def purge_recycle_bin(timeout: int = DEFAULT_TIMEOUT) -> dict:
+    """彻底清空三盘回收站的非系统条目并验证归零（仅 Windows）。"""
+    started = time.monotonic()
+    if os.name != "nt":
+        return {"name": "回收站兜底清理", "status": "SKIP", "seconds": 0.0,
+                "detail": "非 Windows 环境，无需清理"}
+    shell = shutil.which("powershell") or shutil.which("pwsh")
+    if not shell:
+        return {"name": "回收站兜底清理", "status": "SKIP", "seconds": 0.0,
+                "detail": "未找到 powershell / pwsh"}
+
+    try:
+        result = subprocess.run(
+            [shell, "-NoProfile", "-NonInteractive", "-Command", _PURGE_SCRIPT],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=min(max(timeout, 30), 180),
+        )
+    except Exception as exc:
+        return {"name": "回收站兜底清理", "status": "FAIL",
+                "seconds": time.monotonic() - started, "detail": str(exc)}
+
+    output = result.stdout or ""
+    match = re.search(r"removed=(\d+);remaining=([\d,]+)", output)
+    if result.returncode != 0 or not match:
+        detail = _tail(output + "\n" + (result.stderr or ""))
+        return {"name": "回收站兜底清理", "status": "FAIL",
+                "seconds": time.monotonic() - started, "detail": detail}
+
+    removed = int(match.group(1))
+    remaining = [int(value) for value in match.group(2).split(",") if value]
+    ok = bool(remaining) and all(value == 0 for value in remaining)
+    return {
+        "name": "回收站兜底清理",
+        "status": "PASS" if ok else "FAIL",
+        "seconds": time.monotonic() - started,
+        "detail": f"清理 {removed} 项，三盘剩余 {remaining}",
+    }
+
+
 # ---------------------------------------------------------------- 交付物自检
 
 def self_checks() -> list[dict]:
@@ -308,6 +383,8 @@ def main() -> int:
     parser.add_argument("--build", action="store_true", help="追加前端构建")
     parser.add_argument("--runtime", action="store_true", help="追加工作台契约与联动验收")
     parser.add_argument("--self-check", action="store_true", help="只做仓库内交付物自检（CI 用）")
+    parser.add_argument("--purge-recycle-bin", action="store_true",
+                        help="单独执行回收站兜底清理（--build 时自动执行）")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help="单项超时秒数")
     parser.add_argument("--json", dest="json_path", default="", help="把结果写成 JSON")
     args = parser.parse_args()
@@ -316,11 +393,18 @@ def main() -> int:
     if args.self_check:
         print("模式：交付物自检（不依赖产品仓库与运行时服务）\n")
         results = self_checks()
+    elif args.purge_recycle_bin and not (args.build or args.runtime):
+        print("模式：仅回收站兜底清理\n")
+        results = []
     else:
         selected = ["单元测试"] + (["前端构建"] if args.build else []) \
             + (["运行时验收"] if args.runtime else [])
         print(f"模式：{' + '.join(selected)}\n")
         results = [run_check(check, args.timeout) for check in build_checks(args)]
+
+    # 构建会清空 dist/ 并产生回收站条目；显式开关可单独做一次收尾清理。
+    if not args.self_check and (args.build or args.purge_recycle_bin):
+        results.append(purge_recycle_bin(args.timeout))
 
     for item in results:
         _print_result(item)

@@ -128,8 +128,9 @@ flowchart LR
 |---|---|
 | 启动全部服务 | `py -3 统一电商工作台/start.py`（`UNIFIED_NO_BROWSER=1` 可禁自动开浏览器） |
 | 全量测试 | `py -3 verify_all.py` |
-| 全量测试 + 前端构建 + 运行时验收 | `py -3 verify_all.py --build --runtime` |
+| 全量测试 + 前端构建 + 运行时验收 | `py -3 verify_all.py --build --runtime`（构建会自动追加回收站兜底清理） |
 | 仅交付物自检（CI 用） | `py -3 verify_all.py --self-check` |
+| 单独清空回收站 | `py -3 verify_all.py --purge-recycle-bin`（仅 Windows 生效，清理后断言三盘归零） |
 | 运行时契约与三段联动 | `py -3 统一电商工作台/verify.py`（需工作台已启动） |
 | 单笔闭环复现 | `py -3 verify_order_event_chain.py` |
 
@@ -151,7 +152,7 @@ flowchart LR
    git push -u origin main
    ```
 
-   当前环境未安装 `gh` CLI，无法代为创建远程仓库或推送；分支为 `main`，与 workflow 的触发分支一致。
+   当前环境未安装 `gh` CLI，无法代为创建远程仓库或推送；分支为 `main`，与 workflow 的触发分支一致。2026-11-08 只读核查：本机 `git` 身份已配置、SSH key 存在且 `git@github.com` 认证通过（`Hi awei-bug!`），**推送前置条件已就绪，只差一个已创建的目标仓库及其 URL**。
 5. 所有「功能全部跑通」类表述只覆盖无参 GET、页面巡检与本页列出的验收脚本；写接口、鉴权边界、跨租户路径由 `verify.py` 的安全矩阵单独覆盖，两者口径不同。
 
 ---

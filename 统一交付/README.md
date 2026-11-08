@@ -169,13 +169,13 @@ vue-router 主版本冲突、React 与 Vue 无法同 app 挂载、webpack 与 Vi
 | 一键全量验证 | `verify_all.py`：默认 6 套单测，`--build` 追加 2 个前端构建，`--runtime` 追加工作台契约与联动，`--self-check` 只做仓库内自检；逐项耗时与退出码汇总，单项失败不中断，路径缺失标 SKIP，支持 `--json` 与 `UNIFIED_WORKSPACE_ROOT` | `verify_all.py` |
 | CI | `.github/workflows/ci.yml` 跑纯仓库内自检（Python 语法、文档相对链接、交付物齐备、过程归档清理状态、ADR 5 条），不装产品依赖、不访问端口 | `.github/workflows/ci.yml` |
 
-实测：`py -3 verify_all.py --build --runtime` **9/9 PASS，退出码 0，耗时 409.4s**（2026-11-08 P0 复跑，已无重试兜底）；`--self-check` **5/5 PASS**；跨境 vitest 修复前后各连跑 10 次（1 失败 → 0 失败）；内容前端单测 52 项全通过；CI YAML 解析通过。
+实测：`py -3 verify_all.py --build --runtime` **10/10 PASS，退出码 0，耗时 353.1s**（2026-11-08；末项「回收站兜底清理」清掉构建产生的 424 项，三盘剩余 `[0,0,0]`）；`--self-check` **5/5 PASS**；`--purge-recycle-bin` 单独对照验证清理前 4 项 → 清理后 0 项；跨境 vitest 修复前后各连跑 10 次（1 失败 → 0 失败）；内容前端单测 52 项全通过；CI YAML 解析通过。
 
 三个必须说清的边界：
 
-1. **本仓库没有 git remote**，CI 配置文件在推送到 GitHub 之前不会运行。三个产品仓库各自已有 workflow 负责自己的单测；完整跨仓库测试由本地 `verify_all.py` 负责。把联动验收搬进 CI 需要 monorepo 或多仓库 checkout + 凭据 + 服务容器。
+1. **本仓库没有 git remote**，CI 配置文件在推送到 GitHub 之前不会运行。三个产品仓库各自已有 workflow 负责自己的单测；完整跨仓库测试由本地 `verify_all.py` 负责。把联动验收搬进 CI 需要 monorepo 或多仓库 checkout + 凭据 + 服务容器。2026-11-08 已只读验证本机 SSH 认证可用（`git@github.com`、`Hi awei-bug!`），**只差一个已创建的空仓库 URL**，不擅自创建或推送。
 2. **跨境前端 vitest 偶发失败已修复（2026-11-08）**。基线连续 10 次中 1 次失败（冷启动 76.34s，`router.test.ts` 两个动态 import 用例）；根因是三个测试文件并行转换时争抢 CPU，叠加 20s 超时不足以覆盖冷缓存下首次编译整棵视图依赖树。`frontend/vite.config.ts` 改为 `fileParallelism: false` + `testTimeout/hookTimeout: 60000`，修复后连续 10 次 0 失败。`verify_all.py` 的显式重试兜底与 `--no-retry` 已移除，测试失败即为真实失败。
-3. **构建类操作也会间接产生回收站条目**。前端 `build` 清空 `dist/` 时，本环境的 safe-delete 垫片会把旧产物移入回收站（2026-11-08 完整档跑完实测产生 452 项）。因此跑完 `--build` 或任何删除后，必须按用户级删除规则清空三盘回收站并验证为 0，不能只看业务测试是否通过。顶层 `F:/Python_code/README.md` 已于同日删除，可展示内容全部在 `电商垂类整合计划/` 仓库中。
+3. **构建类操作会间接产生回收站条目，已纳入自动化**。前端 `build` 清空 `dist/` 时，本环境的 safe-delete 垫片会把旧产物移入回收站（2026-11-08 完整档实测产生 452 项）。`verify_all.py` 现已在 `--build` 档自动追加「回收站兜底清理」作为最后一项检查：用 .NET API 清空三盘非系统条目并断言归零；`--purge-recycle-bin` 可单独执行。实测清理前 4 项 → 清理后 0 项。顶层 `F:/Python_code/README.md` 已于同日删除，可展示内容全部在 `电商垂类整合计划/` 仓库中。
 
 ## 十二、已知口径约束
 
