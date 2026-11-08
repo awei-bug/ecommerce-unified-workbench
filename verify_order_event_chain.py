@@ -3,7 +3,8 @@
 触发一笔真实的云购订单，依次断言三条链路：
 1. 订单投影到跨境订单读模型；
 2. 库存变动投影到跨境库存读模型，并出现在低库存预警接口；
-3. 内容平台按同一批库存事件生成补货文案草稿。
+3. 内容平台按同一批库存事件生成补货草稿，回推数据中心的独立 ops_note 字段；
+4. 云购同步后 C 端商品介绍与卖点保持干净，运营提示只在后台可见。
 脚本不 mock 任何一端的业务逻辑，数据全部由真实事件驱动。
 
 前置：统一电商工作台已启动（start.py 会拉起 order-events 与 content-drafts 进程）。
@@ -25,6 +26,9 @@ ROOT = HERE.parent
 SHOP_BASE = "http://127.0.0.1:5000"
 CROSS_BASE = "http://127.0.0.1:8000"
 CONTENT_BASE = "http://127.0.0.1:3100"
+HUB_BASE = "http://127.0.0.1:8120"
+HUB_TENANT = "demo"
+HUB_TOKEN = os.environ.get("DATA_HUB_TOKEN", "hub-local-token")
 PORTAL_STATUS = "http://127.0.0.1:8090/status"
 CROSS_DB = ROOT / "跨境电商运营智能辅助系统" / "backend" / "data" / "ops_workbench.db"
 
@@ -226,6 +230,21 @@ def product_copy(token: str, product_id: int) -> tuple[str, str]:
     return "", ""
 
 
+def hub_record(external_id: str) -> dict:
+    body = http_json(
+        "GET", f"{HUB_BASE}/hub/products/{HUB_TENANT}/{external_id}",
+        headers={"X-Hub-Tenant": HUB_TENANT, "X-Hub-Token": HUB_TOKEN},
+    )
+    return body.get("item") or {}
+
+
+def shop_ops_notes(token: str) -> dict:
+    body = http_json("GET", f"{SHOP_BASE}/products/ops-notes/", headers={"token": token})
+    if body.get("status") != 200:
+        raise SystemExit(f"运营提示接口失败: {body}")
+    return body.get("data") or {}
+
+
 def main() -> int:
     check_services()
     token, tenant_id = login()
@@ -309,14 +328,30 @@ def main() -> int:
             print(f"      event_id={draft['eventId']} kind={draft['kind']} "
                   f"stock_after={draft['stockAfter']} hub={draft['hubStatus']}")
 
+            record = hub_record(published["external_id"])
+            assert "【运营提示】" in (record.get("ops_note") or ""), (
+                f"运营提示未写入独立字段：{record.get('ops_note')!r}"
+            )
+            assert "【运营提示】" not in (record.get("desc_zh") or ""), "数据中心商品介绍被污染"
+            assert not any(
+                str(p).startswith("库存提示：") for p in (record.get("selling_points") or [])
+            ), "数据中心卖点被污染"
+            print("PASS  运营提示进入数据中心独立字段 ops_note")
+            print(f"      ops_note={(record.get('ops_note') or '')[:48]}")
+
             sync_from_hub(token)
             introduce, sell_points = product_copy(token, pid)
-            assert "【运营提示】" in introduce, (
-                f"云购商品未吸收草稿文案，当前描述：{introduce[:80]}"
+            assert "【运营提示】" not in introduce, (
+                f"云购 C 端商品介绍出现运营提示：{introduce[:80]}"
             )
-            print("PASS  云购从数据中心同步后吸收草稿文案")
-            print(f"      商品描述尾部：{introduce[-60:]}")
-            print(f"      卖点：{sell_points[-40:]}")
+            assert "库存提示：" not in sell_points, "云购 C 端卖点出现运营提示"
+            notes = shop_ops_notes(token)
+            assert "【运营提示】" in notes.get(str(pid), ""), (
+                f"商城后台未读到运营提示：{notes}"
+            )
+            print("PASS  云购同步后 C 端文案干净，运营提示只在后台可见")
+            print(f"      商品介绍：{introduce[:52]}")
+            print(f"      后台提示：{notes[str(pid)][:52]}")
             return 0
         time.sleep(2)
 

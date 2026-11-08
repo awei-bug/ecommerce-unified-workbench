@@ -116,13 +116,17 @@
 | 商品上行 | `POST /products/hub/publish/` 把商城自建商品登记到数据中心，`external_id` 为 `yg-{tenant}-{product}`，同时写 `t_product_knowledge` 建立绑定；重复上行复用同一身份，不产生第二个商品 | `flask_shop/utils/hub_publish.py`、`product/views.py` |
 | 草稿回推 | 有 `external_id` 时先读数据中心记录，整条合并后写回：只替换 `【运营提示】` 段与库存卖点，其余字段原样带回；回推失败只记 `hub_status=push_failed`，草稿不丢、水位照常推进 | `api-server/src/services/inventory-draft-consumer.js` |
 | 商城吸收 | 再次执行 `POST /products/hub/sync/`，云购商品描述与卖点吸收草稿文案，闭环回到商城 | `flask_shop/utils/hub_sync.py` |
-| 验证 | `verify_order_event_chain.py` 下单把库存压到阈值以下，断言草稿生成且 `eventId` 可回溯；`verify.py` 一条命令串起四段联动 | 仓库根目录、工作台目录 |
+| 字段分层 | 数据中心新增独立列 `ops_note`（幂等迁移，兼容 SQLite / PG），运营提示不进入 `desc_zh` / `selling_points`；`content_hash` 计入该字段，提示变化会推进 `version` 让下游增量同步感知 | `apps/data-hub/app.py`、`test_ops_note.py` |
+| 商城后台 | 商品列表新增「发布到数据中心」按钮与「运营提示」列；`GET /products/ops-notes/` 按租户返回提示映射，提示存于 `t_product_knowledge.knowledge_json`，C 端不可见 | `vue_shop/src/views/ProductView.vue`、`product/views.py` |
+| 验证 | `verify_order_event_chain.py` 断言 `introduce` 与卖点不含运营提示、hub 的 `ops_note` 含提示、后台接口可读到；`verify.py` 一条命令串起四段联动 | 仓库根目录、工作台目录 |
 
 阈值由工作台注入 `INVENTORY_LOW_STOCK_THRESHOLD`（默认 25），消费间隔 10 秒。草稿文案是确定性模板，不调用大模型：这一层的价值在事件驱动与可追溯，接生成模型只需替换 `buildDraft` 一个函数。
 
-实测闭环：商品上行 `external_id=chain-…`，下单后库存 18 → 17，云购事件 `event_id=24`，内容平台草稿 `hubStatus=pushed`，再同步后云购商品描述出现「仅剩 17 件」，卖点追加「库存提示：当前仅剩 17 件」。
+实测闭环：商品上行 `external_id=chain-…`，下单后库存降到 20，云购事件 `event_id=35`，草稿 `hubStatus=pushed`，数据中心 `ops_note` 出现「仅剩 20 件」，`desc_zh` 无提示；同步后云购商品介绍保持「便携式榨汁杯，380ml 容量…」，后台「运营提示」列显示草稿全文。
 
-一个已知折中：运营提示目前写在商品 `desc_zh` 尾部，而该字段是顾客可见的商品描述。更干净的做法是数据中心加独立的 `ops_note` 字段，商城只在后台展示。这一版先保证链路可验证，字段分层留待后续。
+字段分层说明：运营提示现在是数据中心的独立列 `ops_note`，不再写进顾客可见的 `desc_zh` 或卖点。商城同步后只在后台「运营提示」列展示，C 端商品介绍保持干净。早期版本拼进 `desc_zh` 的历史文本，由商品上行（`hub_publish.build_item`）与草稿回推（`mergeDraftIntoHubItem`）两处幂等剥除；数据中心与商城的历史脏数据在首次闭环运行时自动清理。
+
+`ops_note` 变化会计入 `content_hash` 并推进 `version`，因此下游按 `updated_at` 增量同步不会漏掉运营侧更新；重复上行同一商品会带回已有 `ops_note`，不会把内容平台刚生成的提示清空。
 
 ## 十、已知口径约束
 
