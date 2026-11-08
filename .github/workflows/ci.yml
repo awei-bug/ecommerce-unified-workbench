@@ -1,0 +1,44 @@
+# 交付物自检 CI
+#
+# 边界（务必先读）：
+# 1. 本仓库当前没有 git remote。推送到 GitHub 之前，本文件只是配置，不会运行。
+# 2. 产品线是 4 个独立 git 仓库。跨仓库的 pytest / npm test / 联动验收依赖
+#    另外三个仓库同时存在，且需要各自的依赖与运行时服务，因此**不在本 CI 内**。
+#    完整验证由本地 `py -3 verify_all.py --build --runtime` 负责。
+#    三个产品仓库已有的 workflow 各自负责自己的单测。
+# 3. 把联动验收搬进 CI 的前置条件：改为 monorepo，或配置多仓库 checkout +
+#    凭据 + 服务容器。条件未满足前，这里只做可复现、无外部依赖的自检。
+
+name: delivery-self-check
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  self-check:
+    name: Docs, links & script integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # --self-check 只依赖标准库：语法解析、相对链接校验、交付物齐备、
+      # 归档报告数量与 ADR 数量。不安装任何产品依赖，也不访问端口。
+      - name: Verify delivery artifacts
+        run: python verify_all.py --self-check --json self-check.json
+
+      - name: Upload self-check report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: delivery-self-check
+          path: self-check.json
+          if-no-files-found: ignore
