@@ -54,12 +54,6 @@ REQUIRED_FILES = (
 )
 ADR_COUNT = 5
 
-# 已知偶发不稳定项：跨境 router.test.ts 在测试内动态 import 整个视图依赖树，
-# 连续跑多套测试时偶发失败，单独复跑即恢复（历史记录中已出现两次）。
-# 只在这里做**一次显式重试**并打印标注；仍失败则按 FAIL 处理，不静默通过。
-# 根因尚未完全定位，后续方向：关闭 vitest 文件并行或预加载该视图。
-FLAKY_CHECKS = {"跨境前端 vitest"}
-
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -214,21 +208,6 @@ def _tail(text: str, limit: int = 2400) -> str:
     return "\n".join(lines[-24:])[-limit:]
 
 
-def run_check_with_retry(check: dict, timeout: int, allow_retry: bool) -> dict:
-    first = run_check(check, timeout)
-    if first["status"] != "FAIL" or not allow_retry or check["name"] not in FLAKY_CHECKS:
-        return first
-
-    print(f"  [RETRY] {check['name']} 首次失败，按已知偶发项重试一次")
-    retry = run_check(check, timeout)
-    if retry["status"] == "PASS":
-        retry["name"] = f"{check['name']}（重试 1 次）"
-        retry["detail"] = "首次失败后重试通过；已知偶发：router.test.ts 动态 import 时序"
-        return retry
-    first["detail"] = f"{first['detail']}\n--- 重试仍失败，按失败处理 ---\n{retry['detail']}"
-    return first
-
-
 def _portal_ready() -> bool:
     try:
         with urlopen(PORTAL_STATUS, timeout=3) as response:
@@ -330,8 +309,6 @@ def main() -> int:
     parser.add_argument("--runtime", action="store_true", help="追加工作台契约与联动验收")
     parser.add_argument("--self-check", action="store_true", help="只做仓库内交付物自检（CI 用）")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help="单项超时秒数")
-    parser.add_argument("--no-retry", action="store_true",
-                        help="禁用已知偶发项的一次重试，用于暴露不稳定问题")
     parser.add_argument("--json", dest="json_path", default="", help="把结果写成 JSON")
     args = parser.parse_args()
 
@@ -343,10 +320,7 @@ def main() -> int:
         selected = ["单元测试"] + (["前端构建"] if args.build else []) \
             + (["运行时验收"] if args.runtime else [])
         print(f"模式：{' + '.join(selected)}\n")
-        results = [
-            run_check_with_retry(check, args.timeout, allow_retry=not args.no_retry)
-            for check in build_checks(args)
-        ]
+        results = [run_check(check, args.timeout) for check in build_checks(args)]
 
     for item in results:
         _print_result(item)
