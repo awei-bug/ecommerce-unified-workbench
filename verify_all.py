@@ -10,6 +10,7 @@
 - 单项失败不中断其余检查，最终汇总决定退出码；
 - 产品仓库缺失时标记 SKIP 而非 FAIL，便于 CI 只 checkout 本仓库；
 - 每项独立超时，输出逐项耗时；
+- 单测口径与三个产品仓库 CI 对齐（云购 TENANT_STRICT=1、data-hub 跑全部用例）；
 - 不伪造结果：SKIP 会明确打印原因。
 
 用法：
@@ -100,6 +101,8 @@ def build_checks(args) -> list[dict]:
             "cwd": SHOP / "flask_shop",
             "cmd": [_venv_python(SHOP, "flask_shop"), "-m", "pytest", "-q", "--disable-warnings"],
             "requires": SHOP / "flask_shop",
+            # 与云购 CI 完全同口径：严格租户校验下曾出现本地默认模式漏检的回归。
+            "env": {"TENANT_STRICT": "1", "FLASK_ENV": "testing"},
         },
         {
             "name": "跨境 pytest",
@@ -121,6 +124,8 @@ def build_checks(args) -> list[dict]:
             "cwd": CONTENT / "apps" / "api-server",
             "cmd": [npm, "test"],
             "requires": CONTENT / "apps" / "api-server" / "package.json",
+            # 正常耗时约 3s；曾在完整档中偶发挂起，单列 180s 上限。
+            "timeout": 180,
         },
         {
             "name": "内容 studio-web node:test",
@@ -133,7 +138,9 @@ def build_checks(args) -> list[dict]:
             "name": "data-hub pytest",
             "group": "unit",
             "cwd": CONTENT / "apps" / "data-hub",
-            "cmd": [py, "-m", "pytest", "test_ops_note.py", "test_authz.py", "-q"],
+            # 与内容平台 CI 保持一致：跑该目录下全部测试文件，
+            # 不逐个列名，避免新增用例被本地验证漏掉（此前漏了 test_copy_preservation.py）。
+            "cmd": [py, "-m", "pytest", "-q"],
             "requires": CONTENT / "apps" / "data-hub" / "test_authz.py",
         },
     ]
@@ -180,6 +187,8 @@ def run_check(check: dict, timeout: int) -> dict:
         return {"name": check["name"], "status": "SKIP", "seconds": 0.0,
                 "detail": "工作台未启动（/status 不可达），先运行 start.py"}
 
+    # 单项可覆盖全局超时：node:test 偶发挂起不应拖住整轮验证。
+    item_timeout = check.get("timeout", timeout)
     try:
         result = subprocess.run(
             check["cmd"],
@@ -188,8 +197,9 @@ def run_check(check: dict, timeout: int) -> dict:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=timeout,
-            env={**os.environ, "PYTHONUTF8": "1", "CI": os.environ.get("CI", "1")},
+            timeout=item_timeout,
+            env={**os.environ, "PYTHONUTF8": "1", "CI": os.environ.get("CI", "1"),
+                 **(check.get("env") or {})},
         )
         seconds = time.monotonic() - started
         if result.returncode == 0:

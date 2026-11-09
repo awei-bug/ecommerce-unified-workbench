@@ -136,6 +136,8 @@ flowchart LR
 
 登录凭据（仅本机演示）：`demo` / `admin` / `123456`。主入口 `http://127.0.0.1:8080/admin/unified`。
 
+`verify_all.py` 的单测口径与三个产品仓库的 CI 对齐：云购在 `TENANT_STRICT=1` 严格租户模式下跑（本地默认模式曾漏检回归），data-hub 跑 `apps/data-hub` 下全部测试文件。lint / typecheck / 前端构建仍由各仓库 CI 与 `--build` 档分别负责。
+
 ---
 
 ## 五、明确限制
@@ -154,7 +156,7 @@ flowchart LR
    git push -u origin main
    ```
 
-   当前环境未安装 `gh` CLI，无法代为创建远程仓库或推送；分支为 `main`，与 workflow 的触发分支一致。2026-11-08 只读核查：本机 `git` 身份已配置、SSH key 存在且 `git@github.com` 认证通过（`Hi awei-bug!`），**推送前置条件已就绪，只差一个已创建的目标仓库及其 URL**。
+   当前环境未安装 `gh` CLI；`GITHUB_TOKEN` 虽已设置但 2026-11-09 实测为**无效凭据**（`401 Bad credentials`），因此无法代为创建远程仓库。分支为 `main`，与 workflow 的触发分支一致。本机 `git` 身份已配置、SSH key 存在且 `git@github.com` 认证通过（`Hi awei-bug!`），**推送前置条件已就绪，只差一个已创建的目标仓库及其 URL**。
 5. 所有「功能全部跑通」类表述只覆盖无参 GET、页面巡检与本页列出的验收脚本；写接口、鉴权边界、跨租户路径由 `verify.py` 的安全矩阵单独覆盖，两者口径不同。
 
 ---
