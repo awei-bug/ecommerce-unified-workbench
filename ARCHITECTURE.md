@@ -145,7 +145,7 @@ flowchart LR
 3. **草稿是只读展示，不是第二个数据源**。内容平台「商品批量内容」工作区展示库存联动补货草稿（含 `event_id`、库存、回推状态），但页面不提供手工写入口——草稿必须由 `stock.changed` 事件生成。内容平台仍不承载客服知识编辑或商品上架动作。
 4. **四个独立 git 仓库**：三个产品仓库有 GitHub remote，2026-11-09 已把本地改造推送到远端（本地与远端 HEAD 一致）；元仓库（本仓库）**没有 remote**。因此完整跨仓库测试只能在本地由 `verify_all.py` 跑；CI 只覆盖单仓库单测与本仓库交付物自检。把联动验收搬进 CI 的前置条件是 monorepo 或多仓库 checkout + 凭据。
 
-   推送后云购与跨境的既有 workflow 立即触发，并暴露出此前被掩盖的 CI 债务：云购 `requirements-dev.txt` 与 `requirements.txt` 对 Pillow 的互斥 pin、跨境 `integrations.py` 的 import 排序、严格租户模式下部分用例未绑定租户上下文、以及 CI 缺 `TOKEN_ENCRYPTION_KEYS` 导致的测试失败——均已修复。内容平台仓库暂无 workflow。
+   推送后云购与跨境的既有 workflow 立即触发，并暴露出此前被掩盖的 CI 债务：云购 `requirements-dev.txt` 与 `requirements.txt` 对 Pillow 的互斥 pin、跨境 `integrations.py` 的 import 排序、严格租户模式下部分用例未绑定租户上下文、以及 CI 缺 `TOKEN_ENCRYPTION_KEYS` 导致的测试失败——均已修复。内容平台仓库原先没有 workflow，2026-11-09 已补上：npm workspaces 单测与 studio-web 构建、data-hub pytest 分两个 job 运行。
 
    启用本仓库 CI 需先在 GitHub 建好空仓库并配置本机 git 凭据，然后执行：
 
