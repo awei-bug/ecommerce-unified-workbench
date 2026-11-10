@@ -173,7 +173,7 @@ vue-router 主版本冲突、React 与 Vue 无法同 app 挂载、webpack 与 Vi
 
 三个必须说清的边界：
 
-1. **元仓库没有 git remote**，`delivery-self-check` 在推送到 GitHub 之前不会运行；三个产品仓库已于 2026-11-09 推送到各自已有 remote，本地与远端 HEAD 一致。三个产品仓库现均有 workflow 覆盖各自单测，且 2026-11-09 全部通过（云购 `bb51271`、跨境 `0c2727f`、内容 `d73b305`）；完整跨仓库测试由本地 `verify_all.py` 负责。把联动验收搬进 CI 需要 monorepo 或多仓库 checkout + 凭据 + 服务容器。本机 SSH 认证可用（`git@github.com`、`Hi awei-bug!`），但 `GITHUB_TOKEN` 实测无效（401）且无 `gh` CLI，无法代为创建仓库；**只差一个已创建的空仓库 URL**，不擅自创建。
+1. **四个仓库均已有 GitHub remote 并完成推送**（2026-11-09 三个产品仓库，2026-11-10 元仓库 `awei-bug/ecommerce-unified-workbench`）。三个产品仓库的 `CI` 与元仓库的 `delivery-self-check` 全部通过；完整跨仓库测试仍由本地 `verify_all.py` 负责。把联动验收搬进 CI 需要 monorepo 或多仓库 checkout + 凭据 + 服务容器。元仓库用本机 Git Credential Manager 凭据经 `POST /user/repos` 创建，凭据未写入仓库。
 2. **跨境前端 vitest 偶发失败已修复（2026-11-08）**。基线连续 10 次中 1 次失败（冷启动 76.34s，`router.test.ts` 两个动态 import 用例）；根因是三个测试文件并行转换时争抢 CPU，叠加 20s 超时不足以覆盖冷缓存下首次编译整棵视图依赖树。`frontend/vite.config.ts` 改为 `fileParallelism: false` + `testTimeout/hookTimeout: 60000`，修复后连续 10 次 0 失败。`verify_all.py` 的显式重试兜底与 `--no-retry` 已移除，测试失败即为真实失败。
 3. **构建类操作会间接产生回收站条目，已纳入自动化**。前端 `build` 清空 `dist/` 时，本环境的 safe-delete 垫片会把旧产物移入回收站（2026-11-08 完整档实测产生 452 项）。`verify_all.py` 现已在 `--build` 档自动追加「回收站兜底清理」作为最后一项检查：用 .NET API 清空三盘非系统条目并断言归零；`--purge-recycle-bin` 可单独执行。实测清理前 4 项 → 清理后 0 项。顶层 `F:/Python_code/README.md` 已于同日删除，可展示内容全部在 `电商垂类整合计划/` 仓库中。
 

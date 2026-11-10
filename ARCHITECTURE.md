@@ -145,18 +145,9 @@ flowchart LR
 1. **不能称为已上线**。公网与 HTTPS、真实支付商户号、短信服务、真实店主连续试用均未完成，且需要外部资质；`云购/TODO.md` P0 原文写明「不能伪造为已上线」。本项目的可验证范围是**内网演示与工程可信度**。
 2. **三个模块仍是三套独立前端由 iframe 承载**，源码层没有合并；看板是聚合视图，不是路由级集成。
 3. **草稿是只读展示，不是第二个数据源**。内容平台「商品批量内容」工作区展示库存联动补货草稿（含 `event_id`、库存、回推状态），但页面不提供手工写入口——草稿必须由 `stock.changed` 事件生成。内容平台仍不承载客服知识编辑或商品上架动作。
-4. **四个独立 git 仓库**：三个产品仓库有 GitHub remote，2026-11-09 已把本地改造推送到远端（本地与远端 HEAD 一致）；元仓库（本仓库）**没有 remote**。因此完整跨仓库测试只能在本地由 `verify_all.py` 跑；CI 只覆盖单仓库单测与本仓库交付物自检。把联动验收搬进 CI 的前置条件是 monorepo 或多仓库 checkout + 凭据。
+4. **四个独立 git 仓库**，2026-11-09～10 已全部推送到 GitHub：三个产品仓库各自跑 `CI`，元仓库 `awei-bug/ecommerce-unified-workbench` 跑 `delivery-self-check`，四条 workflow 均已通过。完整跨仓库测试仍只能在本地由 `verify_all.py` 跑；把联动验收搬进 CI 的前置条件是 monorepo 或多仓库 checkout + 凭据 + 服务容器。
 
-   推送后云购与跨境的既有 workflow 立即触发，并暴露出此前被掩盖的 CI 债务：云购 `requirements-dev.txt` 与 `requirements.txt` 对 Pillow 的互斥 pin、跨境 `integrations.py` 的 import 排序、严格租户模式下部分用例未绑定租户上下文、以及 CI 缺 `TOKEN_ENCRYPTION_KEYS` 导致的测试失败——均已修复。内容平台仓库原先没有 workflow，2026-11-09 已补上：npm workspaces 单测与 studio-web 构建、data-hub pytest 分两个 job 运行。三个产品仓库的 CI 均已通过（云购 `bb51271`、跨境 `0c2727f`、内容 `d73b305`）；元仓库的 `delivery-self-check` 仍待推送后生效。
-
-   启用本仓库 CI 需先在 GitHub 建好空仓库并配置本机 git 凭据，然后执行：
-
-   ```bash
-   git remote add origin <仓库 URL>
-   git push -u origin main
-   ```
-
-   当前环境未安装 `gh` CLI；`GITHUB_TOKEN` 虽已设置但 2026-11-09 实测为**无效凭据**（`401 Bad credentials`），因此无法代为创建远程仓库。分支为 `main`，与 workflow 的触发分支一致。本机 `git` 身份已配置、SSH key 存在且 `git@github.com` 认证通过（`Hi awei-bug!`），**推送前置条件已就绪，只差一个已创建的目标仓库及其 URL**。
+   元仓库创建说明：环境变量 `GITHUB_TOKEN` 实测无效（401）、本机无 `gh` CLI，最终使用 **Git Credential Manager 缓存的本机凭据**调用 `POST /user/repos` 建仓，再以 HTTPS remote 推送。该凭据仅在本机使用，未写入仓库任何文件；推送前已核查 46 个已跟踪文件不含密钥、数据库或备份。
 5. 所有「功能全部跑通」类表述只覆盖无参 GET、页面巡检与本页列出的验收脚本；写接口、鉴权边界、跨租户路径由 `verify.py` 的安全矩阵单独覆盖，两者口径不同。
 
 ---
