@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 500" width="1000" height="500" role="img" aria-label="三系统合并体业务事实流">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+    </marker>
+    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#0f766e"/>
+    </marker>
+  </defs>
+  <rect width="1000" height="500" fill="#ffffff"/>
+  <text x="32" y="40" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="22" font-weight="700" fill="#111827">三系统合并体 · 业务事实流</text>
+  <text x="32" y="64" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="13" fill="#6b7280">四个独立 git 仓库，仅通过 REST 事件契约联动；没有共享数据库事务</text>
+
+  <rect x="32" y="100" width="230" height="180" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="48" y="128" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="16" font-weight="700" fill="#0f172a">云购 · 交易权威</text>
+  <text x="48" y="152" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="12" fill="#475569">唯一身份源 / 订单 / 库存 / 售价</text>
+  <text x="48" y="178" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="12" fill="#334155">下单、扣减库存在同一事务内</text>
+  <text x="48" y="198" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="12" fill="#334155">写入 t_domain_events（outbox）</text>
+  <text x="48" y="226" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="12" fill="#334155">售价与库存由交易系统独占，</text>
+  <text x="48" y="246" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="12" fill="#334155">商品资料同步不会覆盖</text>
+
+  <rect x="310" y="148" width="196" height="84" rx="10" fill="#fff7ed" stroke="#fdba74" stroke-width="1.5"/>
+  <text x="326" y="176" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="14" font-weight="700" fill="#9a3412">GET /api/events?after=</text>
+  <text x="326" y="198" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="12" fill="#9a3412">自增水位 · 至少一次投递</text>
+  <text x="326" y="218" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="12" fill="#9a3412">消费端按 event_id 幂等</text>
+
+  <rect x="556" y="92" width="412" height="118" rx="12" fill="#f0fdfa" stroke="#5eead4" stroke-width="1.5"/>
+  <text x="574" y="120" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="16" font-weight="700" fill="#115e59">跨境 · 运营中台</text>
+  <text x="574" y="145" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="12" fill="#0f766e">order.created → 订单读模型（列表 / 详情 / 动作任务）</text>
+  <text x="574" y="167" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="12" fill="#0f766e">stock.changed → 库存读模型 → 低库存预警页</text>
+  <text x="574" y="189" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="12" fill="#0f766e">每条预警可回溯到具体云购事件</text>
+
+  <rect x="556" y="226" width="412" height="132" rx="12" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="574" y="254" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="16" font-weight="700" fill="#1e3a8a">内容平台 + data-hub</text>
+  <text x="574" y="279" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="12" fill="#1d4ed8">stock.changed → 补货草稿（按 event_id 幂等）</text>
+  <text x="574" y="301" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="12" fill="#1d4ed8">回推 hub 独立列 ops_note，不进入 C 端商品介绍</text>
+  <text x="574" y="323" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="12" fill="#1d4ed8">云购同步后仅在商家后台「运营提示」列可见</text>
+  <text x="574" y="345" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="12" fill="#1d4ed8">商品上行建立 external_id 绑定，避免重复创建</text>
+
+  <rect x="310" y="386" width="658" height="82" rx="12" fill="#faf5ff" stroke="#c4b5fd" stroke-width="1.5"/>
+  <text x="328" y="414" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="16" font-weight="700" fill="#5b21b6">统一经营看板（登录默认首屏）</text>
+  <text x="328" y="438" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="12" fill="#6d28d9">服务端一次聚合四路真实数据；逐路超时 2.5s，失败标记 unavailable，不回填演示数据</text>
+  <text x="328" y="458" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="12" fill="#6d28d9">三个模块由宿主 iframe 承载，模块注册表与 origin 白名单收敛为单一契约源</text>
+
+  <path d="M262 176 L306 184" stroke="#64748b" stroke-width="1.8" fill="none" marker-end="url(#a)"/>
+  <path d="M506 178 L552 145" stroke="#64748b" stroke-width="1.8" fill="none" marker-end="url(#a)"/>
+  <path d="M506 205 L552 280" stroke="#64748b" stroke-width="1.8" fill="none" marker-end="url(#a)"/>
+  <path d="M762 358 L762 382" stroke="#0f766e" stroke-width="1.8" fill="none" marker-end="url(#b)"/>
+  <path d="M147 280 L147 427 L306 427" stroke="#0f766e" stroke-width="1.8" fill="none" marker-end="url(#b)"/>
+
+  <text x="268" y="168" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="11" fill="#64748b">同事务</text>
+  <text x="512" y="150" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="11" fill="#64748b">订单/库存</text>
+  <text x="512" y="248" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="11" fill="#64748b">库存</text>
+  <text x="770" y="374" font-family="system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="11" fill="#0f766e">聚合</text>
+</svg>
